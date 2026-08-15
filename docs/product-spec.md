@@ -1,0 +1,66 @@
+# LoopX Console 产品规格（输入契约）
+
+版本：v1 · 适用：loopx-console 全部发布形态（源码导入分发）。
+
+## 1. 产品定位
+
+LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用目标管理台。
+
+- 唯一开放的用户场景：把 GitHub Issue 交给 BitFun 宿主 Agent 持续修复
+  （创建 goal → 心跳调度 → turn 执行 → gate 审批 → 直至全部 todo 完成）。
+- 其它目标类型（自由目标、非修复类任务）**明确关闭**：不创建任何 goal，
+  并给出具体原因。它们将来只能通过绑定具体 loopx capability 开放，且需要
+  独立的产品评审。
+
+## 2. 输入契约（严格白名单）
+
+支持以下三种 GitHub 链接形态；链接之后可以附加一段修复要求文本
+（作为任务前言写入 objective）：
+
+| 形态 | 语法 | 行为 |
+|---|---|---|
+| 单个 Issue | `https://github.com/<owner>/<repo>/issues/<n>` | 走完整 `issue-fix workflow-plan`，生成有序 todos |
+| 单个 PR | `https://github.com/<owner>/<repo>/pull/<n>` | 同 Issue（GitHub API 视 PR 为 issue） |
+| 仓库首页 | `https://github.com/<owner>/<repo>`（仅根路径；尾 `/` 与 query 忽略） | 展开全部 open issues → 确认单勾选 → 批量修复 |
+| Issues 列表 | `https://github.com/<owner>/<repo>/issues`（可带 `?q=` 过滤） | 同上 |
+
+拒绝（**不创建任何 goal**，返回结构化错误码）：
+
+| 输入 | 错误码 |
+|---|---|
+| 自由文本、非 github.com 链接、空输入 | `unsupported_input` |
+| github.com 的其它路径（org 首页、`/settings`、`/pulls`、`/releases`、`/tree/…`、`/issues/new`、`/wiki`、commit、search、对比页等） | `unsupported_github_path`（附带被拒 URL） |
+| 一个任务里出现多个不同仓库 | `multiple_repositories` |
+| 目标仓库 ≠ 所选本地 checkout 的 GitHub remote | `repository_mismatch` |
+| 所选目录不是该仓库的本地 checkout（无 GitHub remote） | `repository_unverified` |
+| 仓库/列表展开后没有 open issues | 前端提示（`intakeNoIssues`），不创建 |
+
+## 3. 创建流程（保持现状）
+
+1. 输入 → 客户端即时分类（输入框 badge：Issue / N 个 Issue / 整仓 Issues）。
+2. 提交 → `loopx.resolveIntake`（只读：分类 + 展开 issues 列表 + 仓库绑定校验）。
+3. 确认单（唯一刻意停顿）：多 issue 勾选（默认全选、截断标注）；已有进行中
+   任务时可选「新建任务」或「引导现有任务」。
+4. `loopx.taskIntake`（事件驱动批量写入）→ auto-run 接管。
+
+## 4. 双层强制
+
+- **客户端**（ui.js）：`taskInputKind` / `firstUnsupportedGithubUrl` 即时反馈，
+  不满足契约时提交被本地拦截，附带具体错误与示例。
+- **Worker**（worker.js）：`githubReferences` 严格分类 + `resolveIntake` /
+  `taskIntake` 双重守卫。独立调用者（绕过 UI）同样被拦。
+
+两处实现共享同一份语法定义（本文件 §2），修改契约时必须同步两处与本文档。
+
+## 5. 明确不做（Closed）
+
+- 自由形式目标（等待绑定具体 loopx capability 后单独评审）
+- 非 GitHub 仓库（GitLab/Gitee 等）
+- org/用户主页、搜索、release、commit、diff、wiki 等页面链接
+- 在应用内新建/编辑 issue（用户去 GitHub 建，回来贴链接）
+
+## 6. 未来候选（不承诺）
+
+- 支持按 capability 绑定的其它目标类型（需 loopx 侧能力 + 独立评审）
+- 市场版（无 worker + `shell.exec` argv 重构，执行能力收窄）
+- 运行时随包分发（loopx CLI 二进制捆绑）

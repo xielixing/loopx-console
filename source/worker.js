@@ -298,8 +298,18 @@ function turnPreamble({ projectDir, goalId, agentId }) {
   ].join('\n');
 }
 
+// Strict intake grammar (product spec, docs/product-spec.md): the only
+// supported GitHub links are
+//   - a single item:  github.com/<owner>/<repo>/issues/<n> | /pull/<n>
+//   - the issues list: github.com/<owner>/<repo>/issues
+//   - the repository home: github.com/<owner>/<repo>
+// Every other GitHub path (org pages, /settings, /pulls, /releases, /tree/...,
+// /issues/new, commits, search, ...) is reported as unsupported instead of
+// being silently treated as the repository. Extra text after the link stays
+// allowed and becomes fix-instruction preamble.
 function githubReferences(text) {
   const refs = [];
+  const unsupported = [];
   const seen = new Set();
   const pattern = /https:\/\/github\.com\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+/gi;
   for (const match of String(text || '').matchAll(pattern)) {
@@ -307,38 +317,47 @@ function githubReferences(text) {
     let parsed;
     try { parsed = new URL(rawUrl); } catch (_) { continue; }
     const segments = parsed.pathname.split('/').filter(Boolean);
-    if (segments.length < 2) continue;
+    if (segments.length < 2) {
+      unsupported.push({ url: rawUrl, reason: 'not_a_repository' });
+      continue;
+    }
     // GitHub owner/repo is case-insensitive; canonicalize to lowercase so
     // dedup sets, repo-binding guards, and task_repository labels all agree.
     const owner = segments[0].toLowerCase();
     const repoName = segments[1].replace(/\.git$/i, '').toLowerCase();
     if (!owner || !repoName) continue;
     const type = (segments[2] || '').toLowerCase();
-    const number = /^(issues|pull)$/.test(type) && /^\d+$/.test(segments[3] || '')
-      ? Number(segments[3])
-      : null;
-    // Exactly owner/repo/issues is the whole open-issue list — a distinct
-    // intake kind (batch fix). /issues/new, /issues/assigned etc. are not a
-    // list; they degrade to a plain repository reference. A ?q= filtered list
-    // still counts: the confirmation sheet lets the user re-select anyway.
-    const isIssuesList = type === 'issues' && number === null && segments.length === 3;
-    const kind = number
-      ? (type === 'issues' ? 'issue' : 'pr')
-      : (isIssuesList ? 'issues-list' : 'repository');
+    const isIssueItem = /^(issues|pull)$/.test(type)
+      && segments.length === 4
+      && /^\d+$/.test(segments[3] || '');
+    const isIssuesList = type === 'issues' && segments.length === 3;
+    const isRepoRoot = segments.length === 2;
     const repo = `${owner}/${repoName}`;
-    const url = number
-      ? `https://github.com/${repo}/${type}/${number}`
-      : (isIssuesList ? `https://github.com/${repo}/issues` : `https://github.com/${repo}`);
+    let kind = null;
+    let url = null;
+    let number = null;
+    if (isIssueItem) {
+      kind = type === 'issues' ? 'issue' : 'pr';
+      number = Number(segments[3]);
+      url = `https://github.com/${repo}/${type}/${number}`;
+    } else if (isIssuesList) {
+      kind = 'issues-list';
+      url = `https://github.com/${repo}/issues`;
+    } else if (isRepoRoot) {
+      kind = 'repository';
+      url = `https://github.com/${repo}`;
+    } else {
+      unsupported.push({
+        url: `https://github.com/${repo}/${segments.slice(2).join('/')}`,
+        reason: 'unsupported_path',
+      });
+      continue;
+    }
     if (seen.has(url)) continue;
     seen.add(url);
-    refs.push({
-      url,
-      repo,
-      kind,
-      number,
-    });
+    refs.push({ url, repo, kind, number });
   }
-  return refs;
+  return { refs, unsupported };
 }
 
 function normalizeGithubRemote(value) {
@@ -598,7 +617,22 @@ module.exports = {
   async 'loopx.resolveIntake'({ projectDir = null, objective } = {}) {
     const text = String(objective || '').trim();
     if (!text) throw new Error('loopx.resolveIntake: objective is required');
-    const refs = githubReferences(text);
+    const { refs, unsupported } = githubReferences(text);
+    if (unsupported.length) {
+      return {
+        ok: false,
+        code: 'unsupported_github_path',
+        url: unsupported[0].url,
+        error: `Unsupported GitHub link: ${unsupported[0].url}. Paste an issue, a pull request, the repository home, or its issues list.`,
+      };
+    }
+    if (!refs.length) {
+      return {
+        ok: false,
+        code: 'unsupported_input',
+        error: 'Paste a GitHub issue, pull request, repository, or issues-list link.',
+      };
+    }
     const issueRefs = refs.filter((ref) => ref.kind === 'issue' || ref.kind === 'pr');
     const listRefs = refs.filter((ref) => ref.kind === 'issues-list');
     const requestedRepos = [...new Set(refs.map((ref) => ref.repo))];
@@ -628,8 +662,7 @@ module.exports = {
     let issues = issueRefs.filter((ref) => ref.kind === 'issue').map((ref) => ({
       number: ref.number, title: `#${ref.number}`, url: ref.url, fromList: false,
     }));
-    let kind = issueRefs.length ? (issueRefs.length > 1 ? 'issues' : 'issue')
-      : (refs.length ? 'repository' : 'goal');
+    let kind = issueRefs.length ? (issueRefs.length > 1 ? 'issues' : 'issue') : 'repository';
     let truncated = false;
     // Both an explicit issues-list URL and a bare repository URL mean "the
     // repo's open issues" — one link, one behavior, the sheet re-selects.
@@ -703,7 +736,22 @@ module.exports = {
     if (!agentId) throw new Error('loopx.taskIntake: agentId is required');
     if (mode === 'guide' && !goalId) throw new Error('loopx.taskIntake: mode "guide" requires goalId');
 
-    const refs = githubReferences(text);
+    const { refs, unsupported } = githubReferences(text);
+    if (unsupported.length) {
+      return {
+        ok: false,
+        code: 'unsupported_github_path',
+        url: unsupported[0].url,
+        error: `Unsupported GitHub link: ${unsupported[0].url}. Paste an issue, a pull request, the repository home, or its issues list.`,
+      };
+    }
+    if (!refs.length) {
+      return {
+        ok: false,
+        code: 'unsupported_input',
+        error: 'Paste a GitHub issue, pull request, repository, or issues-list link.',
+      };
+    }
     const listRefs = refs.filter((ref) => ref.kind === 'issues-list');
     const requestedRepos = [...new Set(refs.map((ref) => ref.repo))];
     const projectRepo = projectGithubRepository(projectDir);

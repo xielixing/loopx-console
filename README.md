@@ -15,6 +15,19 @@ loopx 本身没有调度器——由本小程序持有定时器，每次心跳�
 间隔。执行由 BitFun 宿主 Agent 完成（`app.agent.run`），worker 用
 `heartbeat-prompt --compact` 生成任务体。
 
+## 输入契约（唯一开放场景：持续修复 GitHub Issue）
+
+输入框只接受三种链接，**其它输入一律拒绝且不创建任何 goal**：
+
+- `https://github.com/<owner>/<repo>/issues/<n>`（或 `/pull/<n>`）→ 单问题修复
+- `https://github.com/<owner>/<repo>` → 展开全部 open issues 供勾选
+- `https://github.com/<owner>/<repo>/issues`（可带 `?q=`）→ 同上
+
+链接后可附加修复要求文本。自由目标、非 GitHub 链接、GitHub 其它页面
+（/pulls、/releases、/tree/… 等）都会被明确拒绝并提示原因。
+完整契约（分类规则、错误码、创建流程、双层强制）见
+[docs/product-spec.md](docs/product-spec.md)。
+
 ## 前置条件
 
 1. **loopx CLI 可用**（loopx 未发布到 PyPI）：

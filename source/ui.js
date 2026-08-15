@@ -68,8 +68,9 @@ const I18N = {
     detailSchedule: '下次轮询',
     heroTitle: '粘贴链接，自动修复 GitHub Issues',
     heroHint: '一个 Issue 链接修复单个问题；仓库或 Issues 列表链接会列出全部 open issues 供你勾选，然后由 BitFun Agent 逐个修复。需要你审批时会在这里提醒你。',
-    taskPlaceholder: '粘贴 GitHub Issue / 仓库 / Issues 列表链接，可附加修复要求',
-    taskGoalUnsupported: '请粘贴 GitHub Issue、仓库或 Issues 列表链接（自由目标暂未开放）',
+    taskPlaceholder: '粘贴 GitHub Issue / 仓库首页 / Issues 列表链接，可附加修复要求',
+    taskGoalUnsupported: '请粘贴 GitHub Issue、PR、仓库首页或 Issues 列表链接（自由目标暂未开放）',
+    taskUnsupportedPath: (u) => `不支持的 GitHub 链接：${u}。请粘贴 Issue、PR、仓库首页或 Issues 列表链接`,
     taskCreate: '创建任务',
     taskCreating: '正在创建任务…',
     taskResolving: '正在识别任务类型…',
@@ -198,8 +199,9 @@ const I18N = {
     detailSchedule: 'Next poll',
     heroTitle: 'Paste a link, auto-fix GitHub issues',
     heroHint: 'One issue link fixes a single issue; a repository or issues-list link enumerates all open issues for you to pick, then the BitFun agent fixes them one by one. You are alerted here whenever your approval is needed.',
-    taskPlaceholder: 'Paste a GitHub issue / repository / issues-list link, optionally with fix instructions',
-    taskGoalUnsupported: 'Paste a GitHub issue, repository, or issues-list link (free-form goals are not open yet)',
+    taskPlaceholder: 'Paste a GitHub issue / repository home / issues-list link, optionally with fix instructions',
+    taskGoalUnsupported: 'Paste a GitHub issue, pull request, repository home, or issues-list link (free-form goals are not open yet)',
+    taskUnsupportedPath: (u) => `Unsupported GitHub link: ${u}. Paste an issue, a pull request, the repository home, or its issues list.`,
     taskCreate: 'Create task',
     taskCreating: 'Creating task…',
     taskResolving: 'Detecting task type…',
@@ -1607,8 +1609,9 @@ document.getElementById('btn-copy-raw').addEventListener('click', async (e) => {
 // Flow: input → loopx.resolveIntake (read-only classify + expand issues-list)
 // → confirmation sheet (issue checklist; new-vs-guide when goals exist)
 // → loopx.taskIntake (event-driven) → auto-run takes over.
-// Mirror of the worker's URL classification, for the composer badge and the
-// "supported input" gate. Empty string = no GitHub link found (unsupported).
+// Strict intake grammar (docs/product-spec.md): the only supported links are
+// a single issue/PR, the issues list, and the repository home. Anything else
+// is rejected with a specific message instead of being treated as the repo.
 function taskInputKind(text) {
   const urls = String(text || '').match(/https:\/\/github\.com\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+/gi) || [];
   let issues = 0;
@@ -1618,15 +1621,32 @@ function taskInputKind(text) {
     try {
       const segments = new URL(url.replace(/[),.;:\]}]+$/g, '')).pathname.split('/').filter(Boolean);
       const type = (segments[2] || '').toLowerCase();
-      if (/^(issues|pull)$/.test(type) && /^\d+$/.test(segments[3] || '')) issues += 1;
+      if (segments.length === 2) repos += 1;
       else if (type === 'issues' && segments.length === 3) lists += 1;
-      else if (segments.length >= 2) repos += 1;
+      else if (/^(issues|pull)$/.test(type) && segments.length === 4 && /^\d+$/.test(segments[3] || '')) issues += 1;
     } catch (_) {}
   }
   if (lists || (repos && !issues)) return t('taskIssuesList');
   if (issues > 1) return t('taskIssues', issues);
   if (issues === 1) return t('taskIssue');
   return '';
+}
+
+// First github.com URL in the text that does NOT fit the supported grammar
+// (used to explain rejections precisely); null when none.
+function firstUnsupportedGithubUrl(text) {
+  const urls = String(text || '').match(/https:\/\/github\.com\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+/gi) || [];
+  for (const url of urls) {
+    try {
+      const segments = new URL(url.replace(/[),.;:\]}]+$/g, '')).pathname.split('/').filter(Boolean);
+      const type = (segments[2] || '').toLowerCase();
+      const supported = segments.length === 2
+        || (type === 'issues' && segments.length === 3)
+        || (/^(issues|pull)$/.test(type) && segments.length === 4 && /^\d+$/.test(segments[3] || ''));
+      if (!supported) return url;
+    } catch (_) {}
+  }
+  return null;
 }
 
 function setTaskFeedback(message, mode = '') {
@@ -1905,7 +1925,8 @@ async function createTaskFromInput() {
   // Issue-fix is the one polished scenario; free-form goals wait until they
   // can bind to specific loopx capabilities.
   if (!taskInputKind(objective)) {
-    setTaskFeedback(t('taskGoalUnsupported'), 'error');
+    const bad = firstUnsupportedGithubUrl(objective);
+    setTaskFeedback(bad ? t('taskUnsupportedPath', bad) : t('taskGoalUnsupported'), 'error');
     return;
   }
   if (!S.config.projectDir) {
@@ -1936,6 +1957,10 @@ async function createTaskFromInput() {
       setTaskFeedback(t('taskMultipleRepos'), 'error');
     } else if (resolved.code === 'repository_unverified') {
       setTaskFeedback(t('taskRepoUnverified', resolved.requestedRepo || '?'), 'error');
+    } else if (resolved.code === 'unsupported_github_path') {
+      setTaskFeedback(t('taskUnsupportedPath', resolved.url || '?'), 'error');
+    } else if (resolved.code === 'unsupported_input') {
+      setTaskFeedback(t('taskGoalUnsupported'), 'error');
     } else {
       setTaskFeedback(resolved.error || 'intake failed', 'error');
     }
