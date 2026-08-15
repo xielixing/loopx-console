@@ -1,0 +1,41 @@
+{
+  "id": "loopx-console",
+  "name": "LoopX Console",
+  "description": "LoopX 长任务智能体控制台：监控目标状态与调度提示，按 loopx 推荐间隔自适应心跳轮询，手动触发单次 Turn。",
+  "icon": "🛰️",
+  "category": "developer",
+  "tags": ["loopx", "agent", "scheduler", "monitor"],
+  "version": 1,
+  "created_at": 0,
+  "updated_at": 0,
+  "permissions": {
+    "fs": {
+      "read": ["{appdata}", "{user-selected}", "{home}"],
+      "write": ["{appdata}"]
+    },
+    "shell": { "allow": ["loopx", "python", "py"] },
+    "net": { "allow": ["api.github.com"] },
+    "notifications": { "system": true },
+    "agent": { "enabled": true },
+    "node": {
+      "enabled": true,
+      "max_memory_mb": 256,
+      "timeout_ms": 330000
+    }
+  },
+  "ai_context": null,
+  "i18n": {
+    "locales": {
+      "zh-CN": {
+        "name": "LoopX 控制台",
+        "description": "LoopX 长任务智能体控制台：监控目标状态与调度提示，按 loopx 推荐间隔自适应心跳轮询，手动触发单次 Turn。",
+        "tags": ["loopx", "智能体", "调度", "监控"]
+      },
+      "en-US": {
+        "name": "LoopX Console",
+        "description": "Control-plane console for long-running LoopX agents: monitors goal states and scheduler hints, adapts its heartbeat to loopx's recommended interval, and runs governed one-shot turns on demand.",
+        "tags": ["loopx", "agent", "scheduler", "monitor"]
+      }
+    }
+  }
+}

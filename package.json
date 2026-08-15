@@ -1,0 +1,12 @@
+{
+  "name": "miniapp-loopx-console",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "package": "node scripts/package-miniapp.mjs .",
+    "stamp": "node scripts/stamp-version.mjs"
+  },
+  "devDependencies": {
+    "jszip": "^3.10.1"
+  }
+}

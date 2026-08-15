@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "package_id": "org.loopx.console",
+  "version": "3.0.0",
+  "publisher": {
+    "id": "org.loopx",
+    "name": "LoopX contributors"
+  },
+  "min_bitfun_version": "0.2.13",
+  "runtime_dependencies": [
+    {
+      "id": "org.loopx.cli",
+      "label": "LoopX CLI",
+      "version": ">=0.2.13",
+      "probe": {
+        "commands": [
+          ["loopx", "--version"],
+          ["python", "-m", "loopx.cli", "--version"],
+          ["py", "-3", "-m", "loopx.cli", "--version"]
+        ]
+      }
+    }
+  ]
+}
