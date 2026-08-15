@@ -1434,8 +1434,13 @@ app.agent.onEvent((e) => {
   const g = goalForAgentSession(e.sessionId);
   if (!g) return;
   if (e.sourceEvent === 'tool-event') {
-    const name = e.toolName || e.tool_name || e.name;
-    if (name && e.phase !== 'completed') recordGoalActivity(g, String(name));
+    // New bridge nests the tool payload under `toolEvent` (event_type +
+    // tool_name/tool_id fields); the legacy flat shape stays as a fallback.
+    const te = e.toolEvent || {};
+    const name = te.effectiveToolName || te.effective_tool_name
+      || te.toolName || te.tool_name || e.toolName || e.tool_name || e.name;
+    const phase = te.event_type || te.phase || e.phase;
+    if (name && phase !== 'Completed' && phase !== 'completed') recordGoalActivity(g, String(name));
   } else if (e.sourceEvent === 'dialog-turn-completed') {
     finishRun(g, { ok: true });
   } else if (e.sourceEvent === 'dialog-turn-failed') {

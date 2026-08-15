@@ -1,102 +1,28 @@
 name: release
 
 on:
-  workflow_dispatch:
-    inputs:
-      loopx_version:
-        description: 'loopx release tag to pair with (e.g. 0.4.6)'
-        required: true
-      miniapp_version:
-        description: 'Package version to stamp (empty = keep bitfun-miniapp.json)'
-        required: false
-        default: ''
-      build_windows_binary:
-        description: 'Build a standalone loopx.exe with PyInstaller (experimental)'
-        type: boolean
-        default: false
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
 
 jobs:
-  package:
+  source-zip:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Stamp package version
-        if: ${{ inputs.miniapp_version != '' }}
-        run: node scripts/stamp-version.mjs "${{ inputs.miniapp_version }}"
-      - name: Resolve package file name
-        id: resolve
-        shell: bash
+      - name: Package source zip
         run: |
-          PKG=$(node -p "require('./bitfun-miniapp.json').package_id + '-' + require('./bitfun-miniapp.json').version + '.bitfun-miniapp'")
-          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
-      - name: Package
-        run: node scripts/package-miniapp.mjs . "dist/${{ steps.resolve.outputs.pkg }}"
-      - name: Verify package
-        run: node scripts/verify-package.mjs "dist/${{ steps.resolve.outputs.pkg }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: miniapp-package
-          path: dist/*.bitfun-miniapp
-
-  windows-binary:
-    needs: package
-    if: ${{ inputs.build_windows_binary == true }}
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install loopx and PyInstaller
-        shell: bash
+          mkdir -p dist
+          zip -r "dist/loopx-console-${GITHUB_REF_NAME}.zip" meta.json package.json README.md source
+      - name: Verify layout
         run: |
-          pip install "https://github.com/huangruiteng/loopx/archive/refs/tags/v${{ inputs.loopx_version }}.zip" pyinstaller
-      - name: Build standalone loopx.exe
-        shell: bash
-        run: |
-          pyinstaller --onefile --name "loopx-${{ inputs.loopx_version }}" --collect-all loopx packaging/loopx_launcher.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: loopx-windows
-          path: dist/loopx-*.exe
-
-  release:
-    needs: package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - uses: actions/download-artifact@v4
-        with:
-          name: miniapp-package
-          path: assets
-      - name: Resolve release tag
-        id: resolve
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./bitfun-miniapp.json').version")
-          echo "tag=miniapp-v${VERSION}-loopx-v${{ inputs.loopx_version }}" >> "$GITHUB_OUTPUT"
+          ARCHIVE="dist/loopx-console-${GITHUB_REF_NAME}.zip"
+          for f in meta.json package.json source/index.html source/style.css source/ui.js source/worker.js source/esm_dependencies.json; do
+            unzip -l "$ARCHIVE" | grep -q "$f" || { echo "missing $f"; exit 1; }
+          done
+          echo "layout OK"
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.resolve.outputs.tag }}
-          name: LoopX Console ${{ steps.resolve.outputs.tag }}
-          body: |
-            loopx-console MiniApp paired with loopx v${{ inputs.loopx_version }}.
-
-            Install in BitFun: Mini Apps gallery -> install package -> select the
-            `.bitfun-miniapp` asset. Requires a loopx CLI on PATH
-            (`pip install -e <loopx checkout>`; the package probes
-            `loopx --version` before install).
-          files: assets/*.bitfun-miniapp
+          files: dist/*.zip

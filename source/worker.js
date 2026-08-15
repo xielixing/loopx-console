@@ -26,7 +26,7 @@ function candidatePrefixes(srcDir) {
   return list;
 }
 
-const DEFAULT_TIMEOUT_MS = 60000;
+const DEFAULT_TIMEOUT_MS = 180000;
 
 let cachedPrefix = null; // { argv, env }
 
@@ -184,6 +184,16 @@ async function resolvePrefix(argvPrefix, srcDir = null) {
 function registryArgs(projectDir) {
   if (!projectDir) return []; // loopx falls back to its global registry
   return ['--registry', path.join(projectDir, '.loopx', 'registry.json')];
+}
+
+// loopx quota commands run a "public boundary" leak scan whose default root is
+// the loopx source checkout itself; on a cold cache that scan alone can take
+// over a minute. The monitoring gate never consumes scan hits, so point the
+// scan at a small dedicated directory instead and keep the heartbeat fast.
+function quotaScanRoot() {
+  const dir = path.join(process.cwd(), '.loopx-scan-root');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  return dir;
 }
 
 async function runJson(argvPrefix, projectDir, args, opts = {}) {
@@ -899,7 +909,7 @@ module.exports = {
       objectivesByGoal[goalId] = readGoalObjective(projectDir, goal);
     }
 
-    const { result, payload } = await runJson(argvPrefix, projectDir, ['quota', 'status']);
+    const { result, payload } = await runJson(argvPrefix, projectDir, ['quota', 'status', '--scan-root', quotaScanRoot()]);
     const goals = [];
     const seen = new Set();
     const groups = (payload && payload.groups) || payload || {};
@@ -949,6 +959,7 @@ module.exports = {
       '--goal-id', goalId,
       '--runtime-profile', 'outer_controller',
       '--include-scheduler-detail',
+      '--scan-root', quotaScanRoot(),
     ];
     if (agentId) args.push('--agent-id', agentId);
     const { result, payload } = await runJson(argvPrefix, projectDir, args);
@@ -982,7 +993,7 @@ module.exports = {
     const { result, payload } = await runJson(argvPrefix, projectDir, [
       'heartbeat-prompt', '--goal-id', goalId, '--agent-id', agentId,
       '--runtime-profile', 'outer_controller', '--compact',
-    ], { srcDir, timeoutMs: 60000 });
+    ], { srcDir, timeoutMs: 180000 });
     const body = payload && typeof payload.task_body === 'string' ? payload.task_body : null;
     if (result.code !== 0 || payload?.ok === false || !body) {
       return {

@@ -1,4 +1,4 @@
-{
+﻿{
   "id": "loopx-console",
   "name": "LoopX Console",
   "description": "LoopX 长任务智能体控制台：监控目标状态与调度提示，按 loopx 推荐间隔自适应心跳轮询，手动触发单次 Turn。",
