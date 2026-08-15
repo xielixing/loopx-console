@@ -13,10 +13,14 @@
       "read": ["{appdata}", "{user-selected}", "{home}"],
       "write": ["{appdata}"]
     },
-    "shell": { "allow": ["loopx", "python", "py"] },
-    "net": { "allow": ["api.github.com"] },
+    "shell": { "allow": ["loopx", "python", "py", "git"] },
+    "net": { "allow": ["api.github.com", "github.com"] },
     "notifications": { "system": true },
     "agent": { "enabled": true },
+    "host": {
+      "reveal_in_folder": true,
+      "open_external": true
+    },
     "node": {
       "enabled": true,
       "max_memory_mb": 256,

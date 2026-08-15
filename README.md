@@ -25,6 +25,10 @@ loopx 本身没有调度器——由本小程序持有定时器，每次心跳�
 
 链接后可附加修复要求文本。自由目标、非 GitHub 链接、GitHub 其它页面
 （/pulls、/releases、/tree/… 等）都会被明确拒绝并提示原因。
+
+**仓库获取（方向 C）**：未选择本地项目目录时，目标仓库会被**自动克隆**到
+小应用数据目录（带进度显示，重复任务复用缓存）；选择本地 checkout 时则
+绑定该目录。修复过程中任务详情里有「打开仓库目录」按钮。
 完整契约（分类规则、错误码、创建流程、双层强制）见
 [docs/product-spec.md](docs/product-spec.md)。
 
@@ -41,8 +45,10 @@ loopx 本身没有调度器——由本小程序持有定时器，每次心跳�
    worker 会按序探测 `loopx` → `python -m loopx.cli` → `py -3 -m loopx.cli`，
    也可在小程序设置里填 loopx 源码目录走 `PYTHONPATH` 兜底。
 2. **Bun 或 Node.js**（BitFun worker 运行时）。
-3. 至少一个 loopx registry：全局 `~/.codex/loopx/registry.global.json`，
-   或项目下的 `.loopx/registry.json`（在工具栏选择项目目录）。
+3. **git 可用**（自动克隆目标仓库时使用）。
+4. loopx registry 会自动创建：未选本地项目时，目标仓库自动克隆到小应用
+   数据目录并在其中建立 registry；也可在设置里选择本地 checkout 走
+   项目级 registry。
 
 ## 安装（BitFun 从文件夹导入）
 

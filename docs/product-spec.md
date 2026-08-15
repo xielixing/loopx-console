@@ -1,6 +1,6 @@
 # LoopX Console 产品规格（输入契约）
 
-版本：v1 · 适用：loopx-console 全部发布形态（源码导入分发）。
+版本：v1.1（方向 C：自动克隆） · 适用：loopx-console 全部发布形态（源码导入分发）。
 
 ## 1. 产品定位
 
@@ -11,6 +11,22 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 - 其它目标类型（自由目标、非修复类任务）**明确关闭**：不创建任何 goal，
   并给出具体原因。它们将来只能通过绑定具体 loopx capability 开放，且需要
   独立的产品评审。
+
+## 1.1 仓库获取策略（方向 C）
+
+任务绑定的本地仓库目录按以下顺序解析：
+
+1. **自动克隆（默认）**：未选择本地 checkout 时，目标仓库被克隆到小应用
+   自己的数据目录（`<appdata>/repos/<owner>-<repo>`），goal 绑定该克隆；
+   克隆有进度显示（接收对象百分比），已完成仓库走缓存。GitHub 校验失败
+   （仓库不存在/网络错误）在确认单之前就拒绝。
+2. **本地 checkout（高级选项）**：设置里选择项目目录后，任务优先绑定该
+   目录；仓库与该 checkout 不匹配时拒绝并提示。
+
+- 目标目录按 goal 记录（`projectByGoal`），心跳/turn/审批命令各自使用
+  所属 goal 的目录；看板聚合所有注册表（全局 + 每个项目/克隆目录）。
+- 克隆在**完整克隆**（非浅克隆）——修复类 agent 需要完整历史；缓存命中时
+  直接复用。未来可加"浅克隆"选项。
 
 ## 2. 输入契约（严格白名单）
 
@@ -33,15 +49,21 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 | 一个任务里出现多个不同仓库 | `multiple_repositories` |
 | 目标仓库 ≠ 所选本地 checkout 的 GitHub remote | `repository_mismatch` |
 | 所选目录不是该仓库的本地 checkout（无 GitHub remote） | `repository_unverified` |
+| GitHub 上不存在该仓库 | `repository_not_found` |
+| GitHub 校验请求失败（网络/限流） | `repository_lookup_failed` |
 | 仓库/列表展开后没有 open issues | 前端提示（`intakeNoIssues`），不创建 |
 
-## 3. 创建流程（保持现状）
+## 3. 创建流程
 
 1. 输入 → 客户端即时分类（输入框 badge：Issue / N 个 Issue / 整仓 Issues）。
-2. 提交 → `loopx.resolveIntake`（只读：分类 + 展开 issues 列表 + 仓库绑定校验）。
+2. 提交 → `loopx.resolveIntake`（只读：分类 + 展开 issues 列表 + 仓库绑定校验；
+   未选 checkout 时校验 GitHub 仓库存在性并标记 `autoClone`）。
 3. 确认单（唯一刻意停顿）：多 issue 勾选（默认全选、截断标注）；已有进行中
-   任务时可选「新建任务」或「引导现有任务」。
-4. `loopx.taskIntake`（事件驱动批量写入）→ auto-run 接管。
+   任务时可选「新建任务」或「引导现有任务」；自动克隆模式下展示克隆说明。
+4. `loopx.taskIntake`（事件驱动）：`clone`（自动克隆时，带百分比进度）→
+   bootstrap → register → plan/todos → refresh → 完成。
+5. 完成后记录 goal 的仓库目录（`projectByGoal`），看板与心跳使用它；
+   auto-run 接管。
 
 ## 4. 双层强制
 
@@ -61,6 +83,8 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 
 ## 6. 未来候选（不承诺）
 
-- 支持按 capability 绑定的其它目标类型（需 loopx 侧能力 + 独立评审）
+- GitHub token → 自动提 PR（敏感凭证，独立设计：加密存储、权限声明、撤销）
+- 浅克隆选项（大仓库加速）
+- 按 capability 绑定的其它目标类型（需 loopx 侧能力 + 独立评审）
 - 市场版（无 worker + `shell.exec` argv 重构，执行能力收窄）
 - 运行时随包分发（loopx CLI 二进制捆绑）

@@ -131,6 +131,12 @@ const I18N = {
     taskIssues: (n) => `${n} 个 Issue`,
     taskIssuesList: '整仓 Issues',
     taskNeedProject: '请先选择这个任务对应的本地项目目录。',
+    taskRepoNotFound: (repo) => `GitHub 上找不到仓库：${repo}。请检查链接拼写。`,
+    taskRepoLookupFailed: '无法访问 GitHub 校验仓库，请稍后重试。',
+    stageClone: '正在克隆仓库…',
+    stageClonePercent: (p) => `正在克隆仓库… ${p}%`,
+    intakeCloneNote: (repo) => `将自动克隆 ${repo} 到小应用数据目录并开始修复（无需本地 checkout）。`,
+    openRepoDir: '打开仓库目录',
     taskNeedAgent: '请先在设置中配置新任务默认 Agent。',
     taskCreated: (id) => `任务 ${id} 已创建`,
     taskRepoMismatch: (expected, actual) => `链接指向 ${expected}，当前项目是 ${actual}。请切换到正确的本地 checkout。`,
@@ -262,6 +268,12 @@ const I18N = {
     taskIssues: (n) => `${n} Issues`,
     taskIssuesList: 'All repo issues',
     taskNeedProject: 'Select the local project directory for this task first.',
+    taskRepoNotFound: (repo) => `GitHub repository not found: ${repo}. Check the link spelling.`,
+    taskRepoLookupFailed: 'Could not verify the repository on GitHub; try again later.',
+    stageClone: 'Cloning repository…',
+    stageClonePercent: (p) => `Cloning repository… ${p}%`,
+    intakeCloneNote: (repo) => `${repo} will be cloned into the MiniApp data directory (no local checkout needed).`,
+    openRepoDir: 'Open repository folder',
     taskNeedAgent: 'Configure the default Agent for new tasks in Settings first.',
     taskCreated: (id) => `Task ${id} created`,
     taskRepoMismatch: (expected, actual) => `The link targets ${expected}, but the current project is ${actual}. Select the matching local checkout.`,
@@ -286,7 +298,7 @@ const ERROR_BACKOFF_CAP_MIN = 30;
 const S = {
   config: {
     projectDir: null, argvPrefix: null, srcDir: '', agentByGoal: {}, monitorByGoal: {},
-    defaultAgentId: 'bitfun-agent', autoRunByGoal: {},
+    projectByGoal: {}, defaultAgentId: 'bitfun-agent', autoRunByGoal: {},
   },
   detect: null,
   goals: new Map(), // goalId -> G
@@ -301,6 +313,23 @@ const S = {
   archiveOpen: new Set(),
   logs: [],
 };
+
+// Direction C: a goal created by auto-clone binds to its own clone directory;
+// goals bound to the user's selected checkout use the global setting.
+function goalProjectDir(goalId) {
+  return S.config.projectByGoal[goalId] || S.config.projectDir || null;
+}
+
+// All registries the board should aggregate: the selected checkout plus every
+// clone directory recorded for created goals.
+function projectRegistryDirs() {
+  const dirs = [];
+  if (S.config.projectDir) dirs.push(S.config.projectDir);
+  for (const dir of Object.values(S.config.projectByGoal || {})) {
+    if (dir && !dirs.includes(dir)) dirs.push(dir);
+  }
+  return dirs;
+}
 
 function newGoalState(goalId, info) {
   return {
@@ -428,7 +457,7 @@ async function pollGoal(g) {
   try {
     const res = await app.call('loopx.shouldRun', {
       argvPrefix: S.config.argvPrefix,
-      projectDir: S.config.projectDir,
+      projectDir: goalProjectDir(g.goalId),
       goalId: g.goalId,
       agentId: g.agentId || undefined,
     });
@@ -523,7 +552,7 @@ async function refreshUserTodos(g, force = false) {
   try {
     const res = await app.call('loopx.listTodos', {
       argvPrefix: S.config.argvPrefix,
-      projectDir: S.config.projectDir,
+      projectDir: goalProjectDir(g.goalId),
       goalId: g.goalId,
       role: 'user',
       status: 'open',
@@ -573,7 +602,7 @@ async function approveTodo(g, todo, note, button) {
     const res = await app.call('loopx.completeTodo', {
       argvPrefix: S.config.argvPrefix,
       srcDir: S.config.srcDir || null,
-      projectDir: S.config.projectDir,
+      projectDir: goalProjectDir(g.goalId),
       goalId: g.goalId,
       todoId: todo.todo_id,
       note: note || null,
@@ -611,7 +640,7 @@ function canAutoRun(g) {
     // leaves g.last stale (or ok:false) and must never fire on it.
     && g.errorCount === 0 && g.last?.ok !== false
     && g.last?.shouldRun === true && g.autoFailCount < AUTO_RUN_FAIL_LIMIT
-    && !!S.config.projectDir && !!g.agentId;
+    && !!goalProjectDir(g.goalId) && !!g.agentId;
 }
 
 function maybeAutoRun(g) {
@@ -1072,6 +1101,26 @@ function renderGoalDetails(g) {
   };
   autoRunToggle.appendChild(autoRunBox);
   controls.appendChild(autoRunToggle);
+  const goalDir = goalProjectDir(g.goalId);
+  if (goalDir) {
+    const dirRow = document.createElement('div');
+    dirRow.className = 'detail__repodir';
+    const dirText = document.createElement('span');
+    dirText.className = 'detail__repodir-text';
+    dirText.textContent = goalDir;
+    dirText.title = goalDir;
+    const dirButton = document.createElement('button');
+    dirButton.type = 'button';
+    dirButton.className = 'link-btn';
+    dirButton.textContent = t('openRepoDir');
+    dirButton.onclick = () => {
+      try { app.system.revealInFolder(goalDir); } catch (err) {
+        log(`reveal failed: ${err.message || err}`, true);
+      }
+    };
+    dirRow.append(dirText, dirButton);
+    controls.appendChild(dirRow);
+  }
   body.appendChild(controls);
 
   const actions = document.createElement('div');
@@ -1319,7 +1368,7 @@ async function executeRunOnce(g) {
   // Auto-run and the manual confirm dialog can race; whoever arrives second
   // must not reset the live run's state or activity stream.
   if (g.running || !isLiveGoal(g)) return;
-  if (!S.config.projectDir) { log(t('needProject'), true); return; }
+  if (!goalProjectDir(g.goalId)) { log(t('needProject'), true); return; }
   if (!g.agentId) { log(`[${g.goalId}] ${t('needAgent')}`, true); return; }
   g.running = true;
   g.runStartedAt = Date.now();
@@ -1332,7 +1381,7 @@ async function executeRunOnce(g) {
     const composed = await app.call('loopx.turnPrompt', {
       argvPrefix: S.config.argvPrefix,
       srcDir: S.config.srcDir || null,
-      projectDir: S.config.projectDir,
+      projectDir: goalProjectDir(g.goalId),
       goalId: g.goalId,
       agentId: g.agentId,
     });
@@ -1497,7 +1546,9 @@ async function detect() {
 async function refreshGoals() {
   try {
     const res = await app.call('loopx.listGoals', {
-      argvPrefix: S.config.argvPrefix, projectDir: S.config.projectDir,
+      argvPrefix: S.config.argvPrefix,
+      projectDir: S.config.projectDir,
+      projectDirs: projectRegistryDirs(),
     });
     const fresh = new Set();
     for (const info of res.goals || []) {
@@ -1700,6 +1751,9 @@ function openIntakeSheet(resolved, objective) {
   } else if (resolved.issues.length > 1) summary.textContent = t('intakeSummaryIssues', resolved.repo || '?');
   else if (guidable.length && !hasIssues) summary.textContent = t('intakeSummaryGoal');
   else summary.textContent = objective;
+  if (resolved.autoClone) {
+    summary.textContent += `\n${t('intakeCloneNote', resolved.repo || '?')}`;
+  }
 
   // issue checklist (only for multi/list intake; single issue needs no picking)
   const listEl = document.getElementById('intake-issues');
@@ -1812,11 +1866,12 @@ function startTaskIntake(pending, guideGoalId) {
   app.call('loopx.taskIntake', {
     argvPrefix: S.config.argvPrefix,
     srcDir: S.config.srcDir || null,
-    projectDir: S.config.projectDir,
+    projectDir: guideGoalId ? goalProjectDir(guideGoalId) : S.config.projectDir,
     objective,
     agentId,
     mode: guideGoalId ? 'guide' : 'new',
     goalId: guideGoalId,
+    autoClone: !guideGoalId && Boolean(resolved.autoClone),
     issues: issues.length ? issues : null,
   }).then((res) => {
     if (res && res.ok === false) {
@@ -1845,6 +1900,7 @@ app.on('worker:taskIntake:progress', (d) => {
   if (!S.intakeDraft) return;
   const stages = {
     expand: t('stageExpand'),
+    clone: d.percent != null ? t('stageClonePercent', d.percent) : t('stageClone'),
     bootstrap: t('stageBootstrap'),
     register: t('stageRegister'),
     plan: t('stagePlan'),
@@ -1883,6 +1939,7 @@ app.on('worker:taskIntake:done', async (result) => {
     S.config.agentByGoal[result.goalId] = agentId;
     S.config.monitorByGoal[result.goalId] = true;
     S.config.autoRunByGoal[result.goalId] = true;
+    if (result.projectDir) S.config.projectByGoal[result.goalId] = result.projectDir;
     await saveConfig();
   }
   input.value = '';
@@ -1929,10 +1986,6 @@ async function createTaskFromInput() {
     setTaskFeedback(bad ? t('taskUnsupportedPath', bad) : t('taskGoalUnsupported'), 'error');
     return;
   }
-  if (!S.config.projectDir) {
-    setTaskFeedback(t('taskNeedProject'), 'error');
-    return;
-  }
   if (!resolveDefaultAgent()) {
     setTaskFeedback(t('taskNeedAgent'), 'error');
     return;
@@ -1957,6 +2010,10 @@ async function createTaskFromInput() {
       setTaskFeedback(t('taskMultipleRepos'), 'error');
     } else if (resolved.code === 'repository_unverified') {
       setTaskFeedback(t('taskRepoUnverified', resolved.requestedRepo || '?'), 'error');
+    } else if (resolved.code === 'repository_not_found') {
+      setTaskFeedback(t('taskRepoNotFound', resolved.requestedRepo || '?'), 'error');
+    } else if (resolved.code === 'repository_lookup_failed') {
+      setTaskFeedback(t('taskRepoLookupFailed'), 'error');
     } else if (resolved.code === 'unsupported_github_path') {
       setTaskFeedback(t('taskUnsupportedPath', resolved.url || '?'), 'error');
     } else if (resolved.code === 'unsupported_input') {

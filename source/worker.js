@@ -196,6 +196,77 @@ function quotaScanRoot() {
   return dir;
 }
 
+// ── auto-clone (direction C, docs/product-spec.md) ──────────────
+// When no local checkout is selected, the target repository is cloned into the
+// MiniApp's own data directory and the goal binds to that clone. Progress is
+// streamed through the taskIntake event channel (stage 'clone').
+function cloneTargetDir(repo) {
+  const safe = repo.replace(/[^A-Za-z0-9._-]/g, '-');
+  return path.join(process.cwd(), 'repos', safe);
+}
+
+function repoExistsOnGithub(repo) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(`https://api.github.com/repos/${repo}`, {
+      headers: {
+        'User-Agent': 'BitFun-LoopX-Console',
+        Accept: 'application/vnd.github+json',
+      },
+      timeout: 30000,
+    }, (res) => {
+      res.resume();
+      if (res.statusCode === 200) return resolve(true);
+      if (res.statusCode === 404) return resolve(false);
+      // Rate limits / server errors: let the clone attempt decide.
+      resolve(true);
+    });
+    req.on('timeout', () => req.destroy(new Error('repository lookup timed out')));
+    req.on('error', reject);
+  });
+}
+
+async function cloneRepository(repo, emit) {
+  const target = cloneTargetDir(repo);
+  if (fs.existsSync(path.join(target, '.git'))) {
+    emit({ detail: 'cached' });
+    return target;
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const url = `https://github.com/${repo}.git`;
+  emit({ detail: 'start', url });
+  await new Promise((resolve, reject) => {
+    const child = spawn('git', ['clone', '--progress', url, target], { windowsHide: true });
+    let lastPercent = -1;
+    const onData = (chunk) => {
+      for (const rawLine of String(chunk).split('\n')) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const pct = line.match(/Receiving objects:\s+(\d+)%/);
+        if (pct && Number(pct[1]) !== lastPercent) {
+          lastPercent = Number(pct[1]);
+          emit({ percent: lastPercent });
+        } else {
+          emit({ detail: line.slice(0, 140) });
+        }
+      }
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.on('error', (err) => {
+      try { fs.rmSync(target, { recursive: true, force: true }); } catch (_) {}
+      reject(err);
+    });
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else {
+        try { fs.rmSync(target, { recursive: true, force: true }); } catch (_) {}
+        reject(new Error(`git clone failed (exit ${code})`));
+      }
+    });
+  });
+  return target;
+}
+
 async function runJson(argvPrefix, projectDir, args, opts = {}) {
   const prefix = await resolvePrefix(argvPrefix, opts.srcDir || null);
   let result;
@@ -651,13 +722,39 @@ module.exports = {
     // A GitHub-targeted task against a project dir we cannot identify (no
     // .git/config or non-GitHub remote) would silently run fixes in the wrong
     // tree. Surface it as its own blocking code.
-    if (requestedRepos.length === 1 && !projectRepo) {
+    if (requestedRepos.length === 1 && !projectRepo && projectDir) {
       return {
         ok: false,
         code: 'repository_unverified',
         requestedRepo: requestedRepos[0],
         projectRepo: null,
       };
+    }
+    // No local checkout at all: direction C — offer auto-clone into the
+    // MiniApp's own data directory. Verify the repository exists first so a
+    // typo fails before the user confirms.
+    let autoClone = false;
+    if (requestedRepos.length === 1 && !projectDir) {
+      let exists = true;
+      try {
+        exists = await repoExistsOnGithub(requestedRepos[0]);
+      } catch (err) {
+        return {
+          ok: false,
+          code: 'repository_lookup_failed',
+          requestedRepo: requestedRepos[0],
+          error: `Could not verify ${requestedRepos[0]} on GitHub: ${err.message}`,
+        };
+      }
+      if (!exists) {
+        return {
+          ok: false,
+          code: 'repository_not_found',
+          requestedRepo: requestedRepos[0],
+          error: `GitHub repository not found: ${requestedRepos[0]}`,
+        };
+      }
+      autoClone = true;
     }
     let issues = issueRefs.filter((ref) => ref.kind === 'issue').map((ref) => ({
       number: ref.number, title: `#${ref.number}`, url: ref.url, fromList: false,
@@ -686,6 +783,7 @@ module.exports = {
       issues,
       truncated,
       prCount: issueRefs.filter((ref) => ref.kind === 'pr').length,
+      autoClone,
     };
   },
 
@@ -727,6 +825,7 @@ module.exports = {
     agentId,
     mode = 'new',
     goalId = null,
+    autoClone = false,
     issues = null, // [{url, number, title}] — pre-confirmed selection from the UI
   } = {}) {
     const text = String(objective || '').trim();
@@ -772,13 +871,21 @@ module.exports = {
         projectRepo,
       };
     }
-    if (requestedRepos.length === 1 && !projectRepo) {
+    if (requestedRepos.length === 1 && !projectRepo && projectDir) {
       return {
         ok: false,
         code: 'repository_unverified',
         error: `The selected directory is not a recognizable checkout of ${requestedRepos[0]} (no GitHub remote found).`,
         requestedRepo: requestedRepos[0],
         projectRepo: null,
+      };
+    }
+    if (requestedRepos.length === 1 && !projectDir && !autoClone) {
+      return {
+        ok: false,
+        code: 'project_required',
+        error: `No local project directory is selected for ${requestedRepos[0]}; enable auto-clone or select a checkout.`,
+        requestedRepo: requestedRepos[0],
       };
     }
 
@@ -804,7 +911,13 @@ module.exports = {
       // mints a duplicate goal. Track creation separately from later stages.
       let goalCreated = mode === 'guide'; // guide targets an existing goal
       let failedStage = 'bootstrap';
+      let workingDir = projectDir;
       try {
+        if (!workingDir && autoClone && requestedRepos.length === 1) {
+          emit('clone', { detail: 'start' });
+          failedStage = 'clone';
+          workingDir = await cloneRepository(requestedRepos[0], (extra) => emit('clone', extra));
+        }
         // issues-list / repository URL reaching intake without a UI-confirmed
         // selection (standalone callers): expand it here.
         const expandRepo = listRefs.length ? listRefs[0].repo
@@ -819,8 +932,8 @@ module.exports = {
         if (mode === 'new') {
           emit('bootstrap');
           failedStage = 'bootstrap';
-          const bootstrap = await runJson(argvPrefix, projectDir, [
-            'bootstrap', '--project', projectDir, '--goal-id', targetGoalId,
+          const bootstrap = await runJson(argvPrefix, workingDir, [
+            'bootstrap', '--project', workingDir, '--goal-id', targetGoalId,
             '--objective', text,
             '--adapter-kind', 'read_only_project_map_v0',
             '--adapter-status', 'connected-read-only',
@@ -836,7 +949,7 @@ module.exports = {
         // guarantees the chosen agent is registered there. It is idempotent.
         emit('register');
         failedStage = 'register';
-        const registration = await runJson(argvPrefix, projectDir, [
+        const registration = await runJson(argvPrefix, workingDir, [
           'register-agent', '--goal-id', targetGoalId, '--agent-id', agentId, '--execute',
         ], { srcDir, timeoutMs: 60000 });
         if (registration.result.code !== 0 || registration.payload?.ok === false) {
@@ -849,9 +962,9 @@ module.exports = {
           // classed todos (branch plan, validation, PR readiness).
           emit('plan', { current: 1, total: 1, detail: issueList[0].url });
           failedStage = 'plan';
-          const intake = await planIssueIntake({ argvPrefix, srcDir, projectDir, url: issueList[0].url });
+          const intake = await planIssueIntake({ argvPrefix, srcDir, projectDir: workingDir, url: issueList[0].url });
           const result = intake.ok
-            ? await writePlannedTodos({ argvPrefix, srcDir, projectDir, goalId: targetGoalId, agentId, intake })
+            ? await writePlannedTodos({ argvPrefix, srcDir, projectDir: workingDir, goalId: targetGoalId, agentId, intake })
             : intake;
           issueResults.push({ url: issueList[0].url, ...result });
           written.push(...(result.written || []));
@@ -873,7 +986,7 @@ module.exports = {
             ];
             if (repoLabel) args.push('--task-repository', `git:github.com/${repoLabel}`);
             try {
-              const response = await runJson(argvPrefix, projectDir, args, { srcDir, timeoutMs: 60000 });
+              const response = await runJson(argvPrefix, workingDir, args, { srcDir, timeoutMs: 60000 });
               const ok = response.result.code === 0 && response.payload?.ok !== false;
               written.push({
                 ok,
@@ -895,7 +1008,7 @@ module.exports = {
             '--claimed-by', agentId, '--text', `[P0] ${text}`,
           ];
           if (repoLabel) args.push('--task-repository', `git:github.com/${repoLabel}`);
-          const todo = await runJson(argvPrefix, projectDir, args, { srcDir, timeoutMs: 60000 });
+          const todo = await runJson(argvPrefix, workingDir, args, { srcDir, timeoutMs: 60000 });
           const ok = todo.result.code === 0 && todo.payload?.ok !== false;
           written.push({
             ok,
@@ -910,8 +1023,8 @@ module.exports = {
         // Best-effort: the goal and todos already exist; a refresh hiccup
         // must not be reported as a failed creation.
         try {
-          await runJson(argvPrefix, projectDir, [
-            'refresh-state', '--goal-id', targetGoalId, '--project', projectDir,
+          await runJson(argvPrefix, workingDir, [
+            'refresh-state', '--goal-id', targetGoalId, '--project', workingDir,
           ], { srcDir, timeoutMs: 60000 });
         } catch (_) {}
       } catch (err) {
@@ -932,6 +1045,7 @@ module.exports = {
         issueCount: issueList.length,
         writtenOk: okWritten,
         repository: repoLabel,
+        projectDir: workingDir,
         written,
         issueResults,
         error: failure || (ok ? null : (written.find((entry) => !entry.ok)?.error
@@ -942,25 +1056,57 @@ module.exports = {
     return { started: true, goalId: targetGoalId, mode, intakeKind, issueCount: issueList.length };
   },
 
-  async 'loopx.listGoals'({ argvPrefix = null, projectDir = null } = {}) {
-    const { registryPath, registry } = readRegistry(projectDir);
+  async 'loopx.listGoals'({ argvPrefix = null, projectDir = null, projectDirs = null } = {}) {
+    // Direction C: goals may live in several registries — the user's global
+    // registry and one per cloned/selected project directory. Query each and
+    // merge by goalId. With no project registries, loopx's global registry is
+    // used implicitly (no --registry flag).
+    const dirs = [projectDir, ...(Array.isArray(projectDirs) ? projectDirs : [])]
+      .filter((dir) => typeof dir === 'string' && dir);
+    const uniqueDirs = [...new Set(dirs)];
+    const registryPaths = uniqueDirs
+      .map((dir) => path.join(dir, '.loopx', 'registry.json'))
+      .filter((p) => fs.existsSync(p));
+    const targets = registryPaths.length ? registryPaths : [null];
+
     const agentsByGoal = {};
     const objectivesByGoal = {};
-    const registryGoals = (registry && registry.goals) || [];
-    for (const goal of registryGoals) {
-      const goalId = goal.goal_id || goal.id;
-      if (!goalId) continue;
-      const coordination = goal.coordination || {};
-      agentsByGoal[goalId] = (coordination.registered_agents || [])
-        .map((a) => (typeof a === 'string' ? a : a.agent_id || a.id))
-        .filter(Boolean);
-      objectivesByGoal[goalId] = readGoalObjective(projectDir, goal);
+    for (const target of targets) {
+      const dir = target ? path.dirname(target) : null;
+      const { registry } = readRegistry(dir);
+      for (const goal of (registry && registry.goals) || []) {
+        const goalId = goal.goal_id || goal.id;
+        if (!goalId) continue;
+        const coordination = goal.coordination || {};
+        agentsByGoal[goalId] = (coordination.registered_agents || [])
+          .map((a) => (typeof a === 'string' ? a : a.agent_id || a.id))
+          .filter(Boolean);
+        objectivesByGoal[goalId] = readGoalObjective(dir, goal);
+      }
     }
 
-    const { result, payload } = await runJson(argvPrefix, projectDir, ['quota', 'status', '--scan-root', quotaScanRoot()]);
+    let lastOk = true;
+    const groups = {};
+    for (const target of targets) {
+      const dir = target ? path.dirname(target) : null;
+      const args = ['quota', 'status', '--scan-root', quotaScanRoot()];
+      if (target) args.push('--registry', target);
+      const { result, payload } = await runJson(argvPrefix, dir, args);
+      if (result.code !== 0) {
+        lastOk = false;
+        continue;
+      }
+      const source = (payload && payload.groups) || payload || {};
+      if (source && typeof source === 'object') {
+        for (const [state, entries] of Object.entries(source)) {
+          if (!Array.isArray(entries)) continue;
+          if (!groups[state]) groups[state] = [];
+          groups[state].push(...entries);
+        }
+      }
+    }
     const goals = [];
     const seen = new Set();
-    const groups = (payload && payload.groups) || payload || {};
     const pushGoal = (goalId, state, extra = {}) => {
       if (!goalId || seen.has(goalId)) return;
       seen.add(goalId);
@@ -974,22 +1120,22 @@ module.exports = {
     };
     // quota status groups goals by state; shapes vary by schema version, so
     // walk any {state: [goal…]} mapping and any flat goals list defensively.
-    if (groups && typeof groups === 'object') {
-      for (const [state, entries] of Object.entries(groups)) {
-        if (!Array.isArray(entries)) continue;
-        for (const entry of entries) {
-          if (typeof entry === 'string') pushGoal(entry, state);
-          else if (entry && typeof entry === 'object') {
-            pushGoal(entry.goal_id || entry.id, entry.state || state, {
-              waitingOn: entry.waiting_on ?? null,
-              status: entry.status ?? null,
-            });
-          }
+    for (const [state, entries] of Object.entries(groups)) {
+      for (const entry of entries) {
+        if (typeof entry === 'string') pushGoal(entry, state);
+        else if (entry && typeof entry === 'object') {
+          pushGoal(entry.goal_id || entry.id, entry.state || state, {
+            waitingOn: entry.waiting_on ?? null,
+            status: entry.status ?? null,
+          });
         }
       }
     }
     for (const goalId of Object.keys(agentsByGoal)) pushGoal(goalId, null);
-    return { ok: result.code === 0, registryPath, goals, raw: payload };
+    const registryPath = targets.length === 1
+      ? (targets[0] || resolveRegistryPath(null))
+      : (registryPaths[0] || null);
+    return { ok: lastOk, registryPath, goals, raw: { groups } };
   },
 
   async 'loopx.status'({ argvPrefix = null, projectDir = null, goalId = null, agentId = null } = {}) {
