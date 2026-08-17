@@ -45,7 +45,18 @@
     </div>
 
     <main class="layout">
-      <section id="goal-list" class="board"></section>
+      <div class="workspace">
+        <section id="goal-list" class="board"></section>
+        <aside id="goal-detail-panel" class="detail-panel" hidden>
+          <header class="detail-panel__header">
+            <div><div id="goal-detail-kicker" class="drawer__kicker"></div><h2 id="goal-detail-title"></h2></div>
+            <button id="btn-close-goal" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="close">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3l10 10M13 3L3 13"/></svg>
+            </button>
+          </header>
+          <div id="goal-detail-body" class="detail-panel__body"></div>
+        </aside>
+      </div>
       <section class="composer" aria-label="Create task">
         <div id="task-feedback" class="composer__feedback" role="status" hidden></div>
         <div class="composer__box">
@@ -66,18 +77,6 @@
         </div>
       </section>
     </main>
-
-    <dialog id="dlg-goal" class="drawer">
-      <section class="drawer__shell">
-        <header class="drawer__header">
-          <div><div id="goal-detail-kicker" class="drawer__kicker"></div><h2 id="goal-detail-title"></h2></div>
-          <button id="btn-close-goal" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="close">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3l10 10M13 3L3 13"/></svg>
-          </button>
-        </header>
-        <div id="goal-detail-body" class="drawer__body"></div>
-      </section>
-    </dialog>
 
     <dialog id="dlg-logs" class="drawer">
       <section class="drawer__shell">

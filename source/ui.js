@@ -60,7 +60,6 @@ const I18N = {
     groupReview: '等你处理',
     colSubReview: '阻塞 · 需要你批准后继续',
     colSubActive: 'Agent 正在执行',
-    colSubBacklog: '异步 · 按计划轮询推进',
     groupDone: '已完成',
     detailOverview: '当前动作',
     detailStatus: '状态',
@@ -214,7 +213,6 @@ const I18N = {
     groupReview: 'Needs you',
     colSubReview: 'Blocking · continues after your approval',
     colSubActive: 'The agent is working',
-    colSubBacklog: 'Async · progresses on schedule',
     groupDone: 'Done',
     detailOverview: 'Current action',
     detailStatus: 'Status',
@@ -874,18 +872,18 @@ function isGated(g) {
   return /gate|user_action|operator/.test(s);
 }
 
-// The board mirrors an issue tracker, but attention comes first: the review
-// column ("needs you", blocking) is pinned leftmost, then the one thing that
-// is running, then everything queued (async). Terminal/stopped/error goals
-// never get their own column — they collapse into the quiet "more" footer.
-const PRIMARY_GROUPS = ['review', 'active', 'backlog'];
-const ARCHIVE_GROUPS = ['done', 'paused', 'error'];
+// The board mirrors an issue tracker, but attention comes first: ONLY the two
+// things that deserve a column exist — work that needs the human (blocking)
+// and work that is running. Everything else (queued, terminal, stopped,
+// errors, other-host) collapses into the quiet "more" chips footer.
+const PRIMARY_GROUPS = ['review', 'active'];
+const ARCHIVE_GROUPS = ['backlog', 'done', 'paused', 'error'];
 const GROUP_I18N_KEY = {
   backlog: 'groupBacklog', active: 'groupActive', review: 'groupReview',
   done: 'groupDone', paused: 'groupPaused', error: 'groupError',
 };
 const GROUP_SUB_KEY = {
-  review: 'colSubReview', active: 'colSubActive', backlog: 'colSubBacklog',
+  review: 'colSubReview', active: 'colSubActive',
 };
 
 function isTerminal(g) {
@@ -895,12 +893,14 @@ function isTerminal(g) {
 }
 
 function goalGroup(g) {
-  if (g.running) return 'active';
   if (isTerminal(g)) return 'done';
   if (g.userStopped) return 'paused';
   if (g.errorCount > 0) return 'error';
   if (g.stopped) return 'paused';
+  // A human gate outranks a running turn: an approval request must surface in
+  // "needs you" the moment it opens, not hide behind "in progress".
   if (isGated(g)) return 'review';
+  if (g.running) return 'active';
   return 'backlog';
 }
 
@@ -1018,8 +1018,8 @@ function recordGoalActivity(g, line, isErr = false) {
     while (stream.children.length > 240) stream.removeChild(stream.firstChild);
     if (followTail) stream.scrollTop = stream.scrollHeight;
   } else {
-    const dlg = document.getElementById('dlg-goal');
-    if (dlg.open && S.activeGoalId === g.goalId) renderGoalDetails(g);
+    const panel = document.getElementById('goal-detail-panel');
+    if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
   }
 }
 
@@ -1056,8 +1056,8 @@ function setGoalActivityTick(g, text) {
       stream.scrollTop = stream.scrollHeight;
     }
   } else {
-    const dlg = document.getElementById('dlg-goal');
-    if (dlg.open && S.activeGoalId === g.goalId) renderGoalDetails(g);
+    const panel = document.getElementById('goal-detail-panel');
+    if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
   }
 }
 
@@ -1067,7 +1067,7 @@ function buildIntakeCard(draft) {
   const head = document.createElement('div');
   head.className = 'goal__head';
   const dot = document.createElement('span');
-  dot.className = 'dot dot--backlog';
+  dot.className = 'dot dot--active';
   const id = document.createElement('span');
   id.className = 'goal__id';
   id.textContent = t('taskPendingLabel');
@@ -1154,7 +1154,9 @@ function buildGoalCard(g, compact = false) {
   const group = goalGroup(g);
   const el = document.createElement('button');
   el.type = 'button';
-  el.className = 'goal' + (compact ? ' goal--terminal' : '') + (group === 'review' ? ' goal--gated' : '');
+  el.className = 'goal' + (compact ? ' goal--terminal' : '')
+    + (group === 'review' ? ' goal--gated' : '')
+    + (S.activeGoalId === g.goalId ? ' is-selected' : '');
   el.id = `goal-${g.goalId}`;
   el.setAttribute('aria-label', g.goalId);
   el.onclick = () => openGoalDetails(g);
@@ -1233,12 +1235,12 @@ function appendDetailRow(grid, key, value, className = '', goalId = null) {
 }
 
 function renderGoalDetails(g) {
-  const dlg = document.getElementById('dlg-goal');
-  if (!dlg.open || S.activeGoalId !== g.goalId) return;
+  const panel = document.getElementById('goal-detail-panel');
+  if (panel.hidden || S.activeGoalId !== g.goalId) return;
   if (!Array.isArray(g.activityLines)) g.activityLines = [];
   if (typeof g.currentActivity !== 'string') g.currentActivity = '';
   const active = document.activeElement;
-  if (active && dlg.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
+  if (active && panel.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
 
   const group = goalGroup(g);
   document.getElementById('goal-detail-kicker').textContent = t(GROUP_I18N_KEY[group]);
@@ -1515,10 +1517,16 @@ function openApproveDialog(g, todo) {
 
 function openGoalDetails(g) {
   S.activeGoalId = g.goalId;
-  const dlg = document.getElementById('dlg-goal');
-  if (!dlg.open) dlg.showModal();
+  document.getElementById('goal-detail-panel').hidden = false;
   renderGoalDetails(g);
+  renderAllGoals(true); // mark the selected card
 }
+
+document.getElementById('btn-close-goal').addEventListener('click', () => {
+  S.activeGoalId = null;
+  document.getElementById('goal-detail-panel').hidden = true;
+  renderAllGoals(true);
+});
 
 // Fingerprint of everything the goal list displays except per-second
 // countdown text (the countdown loop patches those spans in place).
@@ -1590,13 +1598,13 @@ function renderAllGoals(force = false) {
   // the composer sits at the bottom as its command bar.
   const buckets = new Map([...PRIMARY_GROUPS, ...ARCHIVE_GROUPS].map((k) => [k, []]));
   for (const g of owned) buckets.get(goalGroup(g)).push(g);
-  // Queued column: runs the scheduler wants NOW first, then by due time.
+  // Queued chips order: runs the scheduler wants NOW first, then by due time.
   buckets.get('backlog').sort((a, b) => (
     (b.last?.shouldRun ? 1 : 0) - (a.last?.shouldRun ? 1 : 0)
   ) || (a.nextDueAt - b.nextDueAt));
   for (const key of PRIMARY_GROUPS) {
     const goals = buckets.get(key);
-    const pendingCount = key === 'backlog' && S.intakeDraft ? 1 : 0;
+    const pendingCount = key === 'active' && S.intakeDraft ? 1 : 0;
     const col = document.createElement('div');
     col.className = `col col--${key}`;
 
@@ -1624,28 +1632,38 @@ function renderAllGoals(force = false) {
 
     const body = document.createElement('div');
     body.className = 'col__body';
+    if (key === 'active' && S.intakeDraft) body.appendChild(buildIntakeCard(S.intakeDraft));
     if (goals.length === 0 && pendingCount === 0) {
       const none = document.createElement('div');
       none.className = 'col__empty';
       none.textContent = t('colEmpty');
       body.appendChild(none);
     }
-    if (key === 'backlog' && S.intakeDraft) body.appendChild(buildIntakeCard(S.intakeDraft));
     for (const g of goals) body.appendChild(buildGoalCard(g));
     col.appendChild(body);
     list.appendChild(col);
   }
-  // Terminal/stopped/error goals and other-host goals share one quiet footer
-  // of chips — rendered only when something actually hides behind it.
+  // Queued/terminal/stopped/error goals and other-host goals share one quiet
+  // footer of chips — rendered only when something actually hides behind it.
   const moreGroups = [];
   for (const key of ARCHIVE_GROUPS) {
     if (buckets.get(key).length > 0) moreGroups.push({ key, goals: buckets.get(key) });
   }
   if (other.length > 0) moreGroups.push({ key: 'other', goals: other });
   if (moreGroups.length > 0) list.appendChild(buildMoreFooter(moreGroups));
+  // Master-detail: the selected goal's panel rides beside the columns.
+  const panel = document.getElementById('goal-detail-panel');
   if (S.activeGoalId) {
     const activeGoal = S.goals.get(S.activeGoalId);
-    if (activeGoal) renderGoalDetails(activeGoal);
+    if (activeGoal) {
+      panel.hidden = false;
+      renderGoalDetails(activeGoal);
+    } else {
+      S.activeGoalId = null;
+      panel.hidden = true;
+    }
+  } else {
+    panel.hidden = true;
   }
   updateHeaderStatus();
 }
@@ -2049,12 +2067,6 @@ document.getElementById('log-filter-all').addEventListener('click', () => setLog
 document.getElementById('log-filter-errors').addEventListener('click', () => setLogFilter('errors'));
 document.getElementById('btn-close-logs').addEventListener('click', () => {
   document.getElementById('dlg-logs').close();
-});
-document.getElementById('btn-close-goal').addEventListener('click', () => {
-  document.getElementById('dlg-goal').close();
-});
-document.getElementById('dlg-goal').addEventListener('close', () => {
-  S.activeGoalId = null;
 });
 
 document.getElementById('btn-copy-raw').addEventListener('click', async (e) => {

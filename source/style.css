@@ -118,12 +118,27 @@ button, input, select { font: inherit; }
 
 .layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* The board fills the view; the composer is its bottom command bar. */
+.workspace { flex: 1; min-height: 0; display: flex; overflow: auto; }
 .board {
-  display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr));
+  display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr));
   grid-template-rows: minmax(0, 1fr) auto; gap: 12px;
-  min-width: 680px; flex: 1 1 auto; min-height: 0; padding: 14px 14px 8px;
+  min-width: 560px; flex: 1 1 auto; min-height: 0; padding: 14px 14px 8px;
   overflow: auto; background: var(--lx-bg);
 }
+/* Master-detail: the selected goal's info + live activity stream rides beside
+   the two columns; closing it returns the full width to the board. */
+.detail-panel {
+  flex: 0 0 min(400px, 34vw); min-width: 320px; display: flex; flex-direction: column;
+  min-height: 0; margin: 0 0 8px; border-left: 1px solid var(--lx-border);
+  background: var(--lx-surface);
+}
+.detail-panel__header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 13px 14px 11px; border-bottom: 1px solid var(--lx-border); flex: 0 0 auto;
+}
+.detail-panel__header h2 { margin: 2px 0 0; font: 600 15px/1.35 var(--lx-sans); overflow-wrap: anywhere; }
+.detail-panel__body { flex: 1; min-height: 0; overflow-y: auto; }
+.goal.is-selected { border-color: var(--lx-accent); box-shadow: 0 0 0 1px var(--lx-accent); }
 .col {
   --col-accent: var(--lx-text-mute);
   position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
@@ -133,7 +148,6 @@ button, input, select { font: inherit; }
 }
 .col--review { --col-accent: var(--lx-review); }
 .col--active { --col-accent: var(--lx-ok); }
-.col--backlog { --col-accent: var(--lx-accent); }
 .col::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, var(--col-accent), transparent 75%);
@@ -187,7 +201,7 @@ button, input, select { font: inherit; }
 .board-more__chip b { color: var(--lx-text-mute); font: 600 11px/1 var(--lx-mono); }
 .board-more__chip:hover, .board-more__chip.is-open { border-color: var(--lx-border-strong); background: var(--lx-hover); color: var(--lx-text); }
 .board-more__panel {
-  display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 8px;
+  display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 8px;
   padding: 10px; border: 1px solid var(--lx-border); border-radius: 10px;
   background: color-mix(in srgb, var(--lx-surface) 30%, var(--lx-bg));
 }
@@ -338,7 +352,7 @@ button, input, select { font: inherit; }
 
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; }
-  .board { min-width: 680px; }
+  .board { min-width: 560px; }
   .composer { padding: 0 12px 12px; }
   .composer__box { border-radius: 10px; }
 }
