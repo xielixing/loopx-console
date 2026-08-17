@@ -105,6 +105,10 @@
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5 10 6l4.5 2L10 10l-2 4.5L6 10 1.5 8 6 6z"/></svg>
                 <select id="composer-model"></select>
               </label>
+              <label class="composer__target" data-i18n-attr="title" data-i18n="composerTargetTitle">
+                <select id="composer-target"></select>
+              </label>
+              <button id="btn-composer-delete" class="btn btn--tiny btn--danger" type="button" data-i18n="deleteShort" hidden>删除</button>
               <span id="task-kind" class="composer__kind" hidden></span>
             </div>
             <button id="btn-create-task" class="composer__submit" type="button" data-i18n-title="taskCreate">
@@ -125,10 +129,6 @@
           <span id="intake-count" class="intake-count"></span>
         </div>
         <div id="intake-issues" class="intake-issues" hidden></div>
-        <label class="field" id="intake-mode" hidden>
-          <span data-i18n="intakeTargetLabel">写入到</span>
-          <select id="intake-goal-select"></select>
-        </label>
         <div class="dlg__actions">
           <button type="button" value="cancel" class="btn dlg-cancel" data-i18n="cancel">取消</button>
           <button value="confirm" id="btn-intake-confirm" class="btn btn--primary" data-i18n="intakeConfirmNew">创建任务</button>

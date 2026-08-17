@@ -1219,12 +1219,13 @@ const I18N = {
     intakeSummaryGoal: '当前已有任务在进行中——选择新建，或把这段话作为引导写入现有任务。',
     intakeSelectAll: '全选',
     intakeSelectedCount: (n, m) => `已选 ${n}/${m}`,
-    intakeTargetLabel: '写入到',
     intakeModeNew: '新建任务',
-    intakeModeGuide: '引导现有任务',
     intakeConfirmNew: '创建任务',
     intakeConfirmIssues: (n) => `开始修复 ${n} 个 Issues`,
     intakeConfirmGuide: '写入现有任务',
+    guideTargetNote: (id) => `将写入现有任务：${id}`,
+    composerTargetTitle: '目标：新建任务或引导现有任务',
+    deleteShort: '删除',
     intakeNoneSelected: '至少选择一个 Issue',
     intakeNoIssues: '该仓库没有 open issues',
     guideStarted: (id) => `已写入引导，任务 ${id} 将按新指示继续`,
@@ -1373,12 +1374,13 @@ const I18N = {
     intakeSummaryGoal: 'Tasks are already running — create a new one, or write this as guidance into an existing task.',
     intakeSelectAll: 'Select all',
     intakeSelectedCount: (n, m) => `${n}/${m} selected`,
-    intakeTargetLabel: 'Write into',
     intakeModeNew: 'New task',
-    intakeModeGuide: 'Guide an existing task',
     intakeConfirmNew: 'Create task',
     intakeConfirmIssues: (n) => `Start fixing ${n} issues`,
     intakeConfirmGuide: 'Write into existing task',
+    guideTargetNote: (id) => `Will be written into existing task: ${id}`,
+    composerTargetTitle: 'Target: new task or guide an existing goal',
+    deleteShort: 'Delete',
     intakeNoneSelected: 'Select at least one issue',
     intakeNoIssues: 'This repository has no open issues',
     guideStarted: (id) => `Guidance written — task ${id} will follow the new instructions`,
@@ -1548,6 +1550,39 @@ function fillModelSelect(select, currentValue, includeFollowGlobal) {
 // user submits); Settings keeps the full row. Both stay in sync.
 function syncComposerModel() {
   fillModelSelect(document.getElementById('composer-model'), S.config.defaultModel || 'auto', false);
+}
+
+// The composer shows where the next intake lands: a new task (default) or an
+// existing goal. The dropdown doubles as the goal picker for deletion.
+function refillComposerTarget() {
+  const select = document.getElementById('composer-target');
+  if (!select) return;
+  const previous = select.value;
+  select.replaceChildren();
+  const optNew = document.createElement('option');
+  optNew.value = '';
+  optNew.textContent = t('intakeModeNew');
+  select.appendChild(optNew);
+  for (const g of S.goals.values()) {
+    if (isTerminal(g)) continue;
+    const option = document.createElement('option');
+    option.value = g.goalId;
+    option.textContent = g.goalId;
+    select.appendChild(option);
+  }
+  const options = [...select.options].map((o) => o.value);
+  select.value = options.includes(previous) ? previous : '';
+  updateComposerDeleteBtn();
+}
+
+function updateComposerDeleteBtn() {
+  const select = document.getElementById('composer-target');
+  const btn = document.getElementById('btn-composer-delete');
+  if (!select || !btn) return;
+  const picked = select.value !== '';
+  btn.hidden = !picked;
+  const chip = select.closest('.composer__target');
+  if (chip) chip.classList.toggle('composer__target--picked', picked);
 }
 
 function newGoalState(goalId, info) {
@@ -2708,6 +2743,7 @@ function renderAllGoals(force = false) {
     panel.hidden = true;
     emptyHint.hidden = false;
   }
+  refillComposerTarget();
   updateHeaderStatus();
 }
 
@@ -3301,18 +3337,17 @@ function setComposerBusy(busy, message = '') {
 
 // The confirmation sheet is the one deliberate stop before anything is
 // written: it shows exactly which issues become todos and where they land.
-function openIntakeSheet(resolved, objective) {
-  S.pendingIntake = { resolved, objective, selected: new Set(resolved.issues.map((i) => i.url)) };
+function openIntakeSheet(resolved, objective, targetGoal = null) {
+  S.pendingIntake = {
+    resolved,
+    objective,
+    selected: new Set(resolved.issues.map((i) => i.url)),
+    guideGoalId: targetGoal && !isTerminal(targetGoal) ? targetGoal.goalId : null,
+  };
   const dlg = document.getElementById('dlg-intake');
   const isList = resolved.kind === 'issues-list';
   const hasIssues = resolved.issues.length > 0;
-  // Guide targets: goals bound to the same checkout. A fresh auto-clone for a
-  // new repository has nothing to guide into — never offer cross-repo guides.
-  const boundDir = resolved.reuseDir
-    || (!resolved.bypassCheckout ? S.config.projectDir : null)
-    || null;
-  const guidable = [...S.goals.values()].filter((g) =>
-    !isTerminal(g) && boundDir && goalProjectDir(g.goalId) === boundDir);
+  const guiding = Boolean(S.pendingIntake.guideGoalId);
 
   document.getElementById('intake-title').textContent = isList
     ? t('intakeTitleList')
@@ -3324,8 +3359,11 @@ function openIntakeSheet(resolved, objective) {
     summary.textContent = t('intakeSummaryList', resolved.repo || '?', resolved.issues.length)
       + (resolved.truncated ? ` ${t('intakeTruncated', resolved.issues.length)}` : '');
   } else if (resolved.issues.length > 1) summary.textContent = t('intakeSummaryIssues', resolved.repo || '?');
-  else if (guidable.length && !hasIssues) summary.textContent = t('intakeSummaryGoal');
+  else if (guiding && !hasIssues) summary.textContent = t('intakeSummaryGoal');
   else summary.textContent = objective;
+  if (guiding) {
+    summary.textContent += `\n${t('guideTargetNote', S.pendingIntake.guideGoalId)}`;
+  }
   if (resolved.autoClone) {
     summary.textContent += `\n${t('intakeCloneNote', resolved.repo || '?')}`;
   } else if (resolved.reuseDir) {
@@ -3336,7 +3374,7 @@ function openIntakeSheet(resolved, objective) {
   }
   // New tasks carry pre-granted write scope (this confirmation IS the
   // consent); only publish/PR decisions still gate later.
-  if (resolved.repo) {
+  if (resolved.repo && !guiding) {
     summary.textContent += `\n${t('intakeWriteNote')}`;
   }
 
@@ -3371,29 +3409,6 @@ function openIntakeSheet(resolved, objective) {
     }
   }
 
-  // target: new task vs guide an existing one
-  const modeRow = document.getElementById('intake-mode');
-  const modeSelect = document.getElementById('intake-goal-select');
-  modeRow.hidden = guidable.length === 0;
-  if (!modeRow.hidden) {
-    modeSelect.replaceChildren();
-    const optNew = document.createElement('option');
-    optNew.value = '';
-    optNew.textContent = t('intakeModeNew');
-    modeSelect.appendChild(optNew);
-    for (const g of guidable) {
-      const opt = document.createElement('option');
-      opt.value = g.goalId;
-      opt.textContent = `${t('intakeModeGuide')}: ${g.goalId}`;
-      modeSelect.appendChild(opt);
-    }
-    // One repo = one goal: when a non-terminal goal already exists for the
-    // same checkout, default to writing into it (guide), so repeated pastes
-    // extend the existing task instead of minting duplicates.
-    modeSelect.value = guidable[0].goalId;
-    modeSelect.onchange = updateIntakeCount;
-  }
-
   updateIntakeCount();
   dlg.returnValue = 'cancel';
   dlg.onclose = () => {
@@ -3403,8 +3418,7 @@ function openIntakeSheet(resolved, objective) {
       setComposerBusy(false, '');
       return;
     }
-    const guideGoalId = modeRow.hidden ? '' : modeSelect.value;
-    startTaskIntake(pending, guideGoalId || null);
+    startTaskIntake(pending, pending.guideGoalId || null);
   };
   dlg.showModal();
 }
@@ -3417,8 +3431,7 @@ function updateIntakeCount() {
   const countEl = document.getElementById('intake-count');
   countEl.textContent = total >= 2 ? t('intakeSelectedCount', selected, total) : '';
   const confirm = document.getElementById('btn-intake-confirm');
-  const modeRow = document.getElementById('intake-mode');
-  const guiding = !modeRow.hidden && document.getElementById('intake-goal-select').value !== '';
+  const guiding = Boolean(pending.guideGoalId);
   if (guiding) {
     confirm.textContent = t('intakeConfirmGuide');
     confirm.disabled = total >= 2 && selected === 0;
@@ -3667,24 +3680,30 @@ async function createTaskFromInput() {
     return;
   }
   setTaskFeedback('');
-  // The sheet exists for real decisions: which issues, and new-vs-guide.
-  // Guide targets are limited to goals bound to the SAME checkout, so a
-  // follow-up issue appends to its own repo's task and never cross-pollinates.
-  const boundDir = resolved.reuseDir
-    || (!resolved.bypassCheckout ? S.config.projectDir : null)
-    || null;
-  const guidable = [...S.goals.values()].filter((g) =>
-    !isTerminal(g) && boundDir && goalProjectDir(g.goalId) === boundDir);
-  if (resolved.issues.length < 2 && guidable.length === 0) {
+  // The composer's target dropdown decides where this intake lands: a new
+  // task (default) or an existing goal (guide). The sheet only confirms the
+  // issue selection — the new-vs-guide pick lives in the composer.
+  const targetSelect = document.getElementById('composer-target');
+  const targetGoal = targetSelect && targetSelect.value
+    ? S.goals.get(targetSelect.value)
+    : null;
+  const guideGoal = targetGoal && !isTerminal(targetGoal) ? targetGoal : null;
+  if (resolved.issues.length < 2 && !guideGoal) {
     startTaskIntake({ resolved, objective, selected: new Set(resolved.issues.map((i) => i.url)) }, null);
     return;
   }
-  openIntakeSheet(resolved, objective);
+  openIntakeSheet(resolved, objective, guideGoal);
 }
 
-// Free text targets a RUNNING task as guidance. Prefer the selected goal,
-// otherwise a single running goal; multiple running goals need a pick first.
+// Free text targets a RUNNING task as guidance. An explicit composer-target
+// pick wins first; otherwise prefer the selected goal, then a single running
+// goal; multiple running goals need a pick first.
 function guidanceTargetGoal() {
+  const select = document.getElementById('composer-target');
+  if (select && select.value) {
+    const picked = S.goals.get(select.value);
+    if (picked && !isTerminal(picked)) return picked;
+  }
   if (S.activeGoalId) {
     const selected = S.goals.get(S.activeGoalId);
     if (selected && selected.running) return selected;
@@ -3739,6 +3758,12 @@ document.getElementById('composer-model').addEventListener('change', async () =>
   S.config.defaultModel = document.getElementById('composer-model').value || 'auto';
   await saveConfig();
   log(t('modelChanged', S.config.defaultModel));
+});
+document.getElementById('composer-target').addEventListener('change', updateComposerDeleteBtn);
+document.getElementById('btn-composer-delete').addEventListener('click', () => {
+  const select = document.getElementById('composer-target');
+  const goal = select.value ? S.goals.get(select.value) : null;
+  if (goal) openDeleteConfirm(goal);
 });
 
 

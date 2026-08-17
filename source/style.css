@@ -99,16 +99,23 @@ button, input, select { font: inherit; }
 .composer__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 3px 9px 9px 17px; }
 .composer__context { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--lx-text-mute); font-size: 11px; }
 .composer__kind { flex: 0 0 auto; padding: 2px 7px; border: 1px solid var(--lx-border); border-radius: 9px; color: var(--lx-text-soft); }
-.composer__model {
+.composer__model,
+.composer__target {
   display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0;
   padding: 2px 7px; border: 1px solid var(--lx-border); border-radius: 10px; color: var(--lx-text-mute);
   cursor: pointer;
 }
-.composer__model:hover { border-color: var(--lx-border-strong); }
-.composer__model select {
+.composer__model:hover,
+.composer__target:hover { border-color: var(--lx-border-strong); }
+.composer__model select,
+.composer__target select {
   min-width: 0; max-width: 230px; padding: 0; border: 0; outline: 0; background: transparent;
   color: var(--lx-text-soft); font-size: 11px; cursor: pointer;
 }
+.composer__target select { max-width: 190px; }
+/* A picked goal flips the chip to accent: the next input guides that goal. */
+.composer__target--picked { border-color: var(--lx-accent); }
+.composer__target--picked select { color: var(--lx-accent); }
 .composer__submit {
   display: grid; place-items: center; flex: 0 0 auto; width: 38px; height: 38px; padding: 0;
   border: 0; border-radius: 50%; background: var(--lx-accent); color: #fff; cursor: pointer;
