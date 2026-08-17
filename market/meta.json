@@ -1,0 +1,46 @@
+{
+  "id": "loopx-console-market",
+  "name": "LoopX Console",
+  "description": "LoopX 长任务智能体控制台（市场版）：监控 GitHub Issue 修复任务的心跳与调度、人工审批与中途插话。需要本机已安装 loopx CLI。",
+  "icon": "🛰️",
+  "category": "developer",
+  "tags": ["loopx", "agent", "scheduler", "monitor"],
+  "version": 1,
+  "created_at": 0,
+  "updated_at": 0,
+  "permissions": {
+    "fs": {
+      "read": ["{appdata}", "{user-selected}", "{home}"],
+      "write": ["{appdata}"]
+    },
+    "shell": { "allow": ["loopx", "git"] },
+    "net": { "allow": ["api.github.com", "github.com"] },
+    "notifications": { "system": true },
+    "agent": { "enabled": true },
+    "ai": { "enabled": true },
+    "host": {
+      "reveal_in_folder": true,
+      "open_external": true
+    },
+    "node": {
+      "enabled": false,
+      "max_memory_mb": 256,
+      "timeout_ms": 330000
+    }
+  },
+  "ai_context": null,
+  "i18n": {
+    "locales": {
+      "zh-CN": {
+        "name": "LoopX 控制台",
+        "description": "LoopX 长任务智能体控制台（市场版）：监控 GitHub Issue 修复任务的心跳与调度、人工审批与中途插话。需要本机已安装 loopx CLI。",
+        "tags": ["loopx", "智能体", "调度", "监控"]
+      },
+      "en-US": {
+        "name": "LoopX Console",
+        "description": "LoopX long-task control console (market edition): monitors goal states and scheduler hints for GitHub issue fixing, gates human approvals and mid-task guidance. Requires the loopx CLI installed on this machine.",
+        "tags": ["loopx", "agent", "scheduler", "monitor"]
+      }
+    }
+  }
+}

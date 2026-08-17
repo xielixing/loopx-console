@@ -1,0 +1,61 @@
+name: market-release
+
+on:
+  push:
+    tags: ['market-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  market-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build market source tree
+        run: |
+          node tools/build-market.cjs
+          node --check market/source/ui.js
+          node --check market/lx-module.js
+      - name: Verify market contract (static checks)
+        run: |
+          set -e
+          # node must be explicitly disabled and the worker must be empty
+          node -e '
+            const fs = require("fs");
+            const meta = JSON.parse(fs.readFileSync("market/meta.json", "utf8"));
+            if (meta.permissions.node && meta.permissions.node.enabled !== false) {
+              console.error("market meta.json must set permissions.node.enabled = false");
+              process.exit(1);
+            }
+            const shellAllow = (meta.permissions.shell && meta.permissions.shell.allow) || [];
+            for (const exe of shellAllow) {
+              if (["sh","bash","zsh","fish","cmd","powershell","pwsh","python","python3","node","bun","deno","ruby","perl"].includes(String(exe).toLowerCase())) {
+                console.error("market shell.allow must not include interpreters: " + exe);
+                process.exit(1);
+              }
+            }
+          '
+          grep -Eq '^module\.exports\s*=\s*\{\}\s*;?\s*$' market/source/worker.js || {
+            echo "market worker.js must be an empty module"; exit 1;
+          }
+          echo "market contract OK"
+      - name: Package market source zip
+        run: |
+          mkdir -p dist
+          cd market
+          zip -r "../dist/loopx-console-market-${GITHUB_REF_NAME}.zip" meta.json package.json source
+          cd ..
+      - name: Verify layout
+        run: |
+          ARCHIVE="dist/loopx-console-market-${GITHUB_REF_NAME}.zip"
+          for f in meta.json package.json source/index.html source/style.css source/ui.js source/worker.js; do
+            unzip -l "$ARCHIVE" | grep -q "$f" || { echo "missing $f"; exit 1; }
+          done
+          echo "layout OK"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
