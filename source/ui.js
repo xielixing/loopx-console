@@ -166,8 +166,7 @@ const I18N = {
     adoptFailed: (e) => `接管失败：${e}`,
     setModel: '执行模型（长程任务的默认值；每个任务可在详情里单独覆盖）',
     modelAuto: '自动（跟随 BitFun 策略）',
-    modelPrimary: 'primary（主模型）',
-    modelFast: 'fast（快模型）',
+    modelPrimaryTag: '主模型',
     modelFollowGlobal: '跟随全局默认',
     detailModel: '执行模型',
     modelChanged: (m) => `执行模型已切换为 ${m}`,
@@ -322,8 +321,7 @@ const I18N = {
     adoptFailed: (e) => `Adopt failed: ${e}`,
     setModel: 'Execution model (global default for long-running tasks; each task can override it in its details)',
     modelAuto: 'Auto (follow BitFun policy)',
-    modelPrimary: 'primary (main model)',
-    modelFast: 'fast (fast model)',
+    modelPrimaryTag: 'primary',
     modelFollowGlobal: 'Follow global default',
     detailModel: 'Execution model',
     modelChanged: (m) => `Execution model switched to ${m}`,
@@ -405,18 +403,15 @@ function projectRegistryDirs() {
 
 // ── execution model selection ───────────────────────────────
 // Long-running fixes let the user pick the host agent model per goal, with a
-// global default in Settings. Values: 'auto' | 'primary' | 'fast' | a concrete
-// model config id from the host's model list.
+// global default in Settings. Values: 'auto' (follow the host policy) or a
+// concrete model config id from the host's model list. The abstract
+// 'primary'/'fast' slot labels are NOT shown: the host marks its primary
+// model (isDefault) in the catalog, and listing slots next to the concrete
+// models they resolve to just duplicates one model under several labels.
 S.modelCatalog = [];
 function modelForGoal(goalId) {
   return S.config.modelByGoal[goalId] || S.config.defaultModel || 'auto';
 }
-
-const MODEL_PRESETS = [
-  { value: 'auto', i18n: 'modelAuto' },
-  { value: 'primary', i18n: 'modelPrimary' },
-  { value: 'fast', i18n: 'modelFast' },
-];
 
 function fillModelSelect(select, currentValue, includeFollowGlobal) {
   select.replaceChildren();
@@ -426,19 +421,25 @@ function fillModelSelect(select, currentValue, includeFollowGlobal) {
     follow.textContent = t('modelFollowGlobal');
     select.appendChild(follow);
   }
-  for (const preset of MODEL_PRESETS) {
-    const option = document.createElement('option');
-    option.value = preset.value;
-    option.textContent = t(preset.i18n);
-    option.selected = currentValue === preset.value;
-    select.appendChild(option);
+  const auto = document.createElement('option');
+  auto.value = 'auto';
+  auto.textContent = t('modelAuto');
+  auto.selected = currentValue === 'auto';
+  select.appendChild(auto);
+  // Legacy slot values ('primary'/'fast') migrate onto the host's primary
+  // model id so a persisted config never dangles after the label cleanup.
+  const primaryModel = (S.modelCatalog || []).find((m) => m && m.isDefault);
+  let effective = currentValue;
+  if (effective === 'primary' || effective === 'fast') {
+    effective = primaryModel ? primaryModel.id : 'auto';
   }
   for (const model of S.modelCatalog || []) {
     if (!model || !model.id) continue;
     const option = document.createElement('option');
     option.value = model.id;
-    option.textContent = model.name || model.id;
-    option.selected = currentValue === model.id;
+    const tag = model.isDefault === true ? ` · ${t('modelPrimaryTag')}` : '';
+    option.textContent = `${model.name || model.id}${tag}`;
+    option.selected = effective === model.id;
     select.appendChild(option);
   }
 }
