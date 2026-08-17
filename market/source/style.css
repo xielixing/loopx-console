@@ -187,6 +187,7 @@ button, input, select { font: inherit; }
   background: var(--lx-surface); flex: 0 0 auto;
 }
 .detail-panel__header h2 { margin: 2px 0 0; font: 600 15px/1.35 var(--lx-sans); overflow-wrap: anywhere; }
+.detail-panel__timer { display: inline-block; margin-top: 5px; color: var(--lx-ok); font: 11px/1.3 var(--lx-mono); }
 .detail-panel__body { flex: 1; min-height: 0; overflow-y: auto; }
 .goal.is-selected {
   border-color: color-mix(in srgb, var(--lx-accent) 52%, var(--lx-border));

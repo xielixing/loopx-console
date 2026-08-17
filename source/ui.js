@@ -55,6 +55,8 @@ const I18N = {
     deleteConfirmText: (id) => `将归档「${id}」的运行记录并从注册表移除（注册表文件会先备份）。看板将不再显示该任务。`,
     confirmDelete: '确认删除',
     activityEmpty: '暂无日志',
+    activityModelRound: '新一轮推理开始',
+    elapsedLabel: (t) => `已用时 ${t}`,
     nextPoll: (t) => `下次轮询 ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `间隔 ${iv}m（基准 ${base}m ×${mult}^${n}，上限 ${cap}m）`,
     intervalPlain: (iv) => `间隔 ${iv}m`,
@@ -206,6 +208,8 @@ const I18N = {
     deleteConfirmText: (id) => `This archives the runtime records of "${id}" and removes it from the registry (the registry file is backed up first). The task will no longer appear on the board.`,
     confirmDelete: 'Delete it',
     activityEmpty: 'No log yet',
+    activityModelRound: 'New reasoning round started',
+    elapsedLabel: (t) => `elapsed ${t}`,
     nextPoll: (t) => `next poll in ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `every ${iv}m (base ${base}m ×${mult}^${n}, cap ${cap}m)`,
     intervalPlain: (iv) => `every ${iv}m`,
@@ -1656,6 +1660,15 @@ function startCountdownLoop() {
       const countdowns = document.querySelectorAll(`.countdown[data-goal="${CSS.escape(g.goalId)}"]`);
       for (const cd of countdowns) cd.textContent = goalMetaText(g);
     }
+    // The panel header carries a live elapsed timer while the selected task
+    // runs — constant motion so the user knows the agent is alive.
+    const activeGoal = S.activeGoalId ? S.goals.get(S.activeGoalId) : null;
+    const timer = document.getElementById('goal-detail-timer');
+    if (timer) {
+      timer.textContent = (activeGoal && activeGoal.running)
+        ? t('elapsedLabel', fmtCountdown(Date.now() - activeGoal.runStartedAt))
+        : '';
+    }
     updateHeaderStatus();
   }, 1000);
 }
@@ -1918,6 +1931,10 @@ app.agent.onEvent((e) => {
     if (e.contentType !== 'thinking' && typeof e.text === 'string') {
       streamAgentText(g, e.text);
     }
+  } else if (e.sourceEvent === 'model-round-started') {
+    // Each model reasoning round lands a line — the log keeps moving while
+    // the agent thinks, which is exactly the liveness users need.
+    recordGoalActivity(g, t('activityModelRound'));
   } else if (e.sourceEvent === 'dialog-turn-completed') {
     flushAgentText(g);
     finishRun(g, { ok: true });
@@ -2230,10 +2247,10 @@ function openIntakeSheet(resolved, objective) {
       opt.textContent = `${t('intakeModeGuide')}: ${g.goalId}`;
       modeSelect.appendChild(opt);
     }
-    // Appending a follow-up issue to the repo's running task is the common
-    // intent — default single issues to the first same-repo goal; batch
-    // intake still defaults to a fresh task.
-    modeSelect.value = resolved.issues.length === 1 ? guidable[0].goalId : '';
+    // One repo = one goal: when a non-terminal goal already exists for the
+    // same checkout, default to writing into it (guide), so repeated pastes
+    // extend the existing task instead of minting duplicates.
+    modeSelect.value = guidable[0].goalId;
     modeSelect.onchange = updateIntakeCount;
   }
 
