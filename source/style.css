@@ -77,20 +77,21 @@ button, input, select { font: inherit; }
 .probe-detail { margin: 4px 0 0; padding: 6px 8px; max-height: 100px; overflow: auto; background: var(--lx-bg); color: var(--lx-text-mute); font: 11px/1.4 var(--lx-mono); white-space: pre-wrap; }
 
 .composer {
-  flex: 0 0 auto; padding: 9px 72px 18px 24px; background: var(--lx-bg);
+  flex: 0 0 auto; padding: 10px 72px 12px 24px; background: var(--lx-bg);
+  border-top: 1px solid var(--lx-border);
 }
 .composer__pitch { width: min(1040px, 100%); margin: 0 auto 14px; text-align: center; }
 .composer__pitch h2 { margin: 0; color: var(--lx-text); font-size: 21px; font-weight: 650; }
 .composer__box {
-  width: min(1040px, 100%); min-height: 118px; margin: 0 auto; overflow: hidden;
-  border: 1px solid var(--lx-border-strong); border-radius: 18px; background: var(--lx-surface);
+  width: min(1040px, 100%); min-height: 64px; margin: 0 auto; overflow: hidden;
+  border: 1px solid var(--lx-border-strong); border-radius: 12px; background: var(--lx-surface);
   box-shadow: 0 8px 24px rgba(0,0,0,.09);
   transition: min-height 180ms ease;
 }
 .composer__box:focus-within { border-color: color-mix(in srgb, var(--lx-accent) 68%, var(--lx-border)); }
 #task-input {
-  display: block; width: 100%; min-height: 70px; max-height: 180px; resize: none;
-  padding: 17px 18px 7px; border: 0; outline: 0; background: transparent; color: var(--lx-text);
+  display: block; width: 100%; min-height: 40px; max-height: 180px; resize: none;
+  padding: 12px 18px 5px; border: 0; outline: 0; background: transparent; color: var(--lx-text);
   font: 14px/1.5 var(--lx-sans); letter-spacing: 0;
   transition: min-height 180ms ease;
 }
@@ -124,7 +125,7 @@ button, input, select { font: inherit; }
    with a one-line pitch above the box. */
 .lx--hero .layout { flex: 0 0 auto; min-height: 0; margin-top: 0; justify-content: center; padding-bottom: 4vh; }
 .lx--hero .board { display: none; }
-.lx--hero .composer { flex: 1 1 auto; padding-top: 4px; }
+.lx--hero .composer { flex: 1 1 auto; padding-top: 4px; border-top-color: transparent; }
 .lx--hero .composer__box { min-height: 150px; }
 .lx--hero #task-input { min-height: 96px; }
 .board {
@@ -325,8 +326,7 @@ button, input, select { font: inherit; }
 
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; }
-  .project-switcher { flex: 1; max-width: none; }
   .board { min-width: 640px; }
-  .composer { padding: 9px 64px 14px 12px; }
-  .composer__box { border-radius: 16px; }
+  .composer { padding: 10px 64px 12px 12px; }
+  .composer__box { border-radius: 10px; }
 }
