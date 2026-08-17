@@ -451,10 +451,21 @@
       // Market shells forbid python/py: only the loopx console script.
       const candidates = [['loopx']];
       if (Array.isArray(argvPrefix) && argvPrefix.length) candidates.unshift(argvPrefix);
+      // Absolute fallbacks for a restricted worker PATH (pip console-script
+      // lives under %LOCALAPPDATA%\Programs\Python\<ver>\Scripts).
+      try {
+        const pyRoot = joinP(homeDir, 'AppData', 'Local', 'Programs', 'Python');
+        const entries = await app.fs.readdir(pyRoot);
+        for (const entry of (Array.isArray(entries) ? entries : [])) {
+          if (entry && entry.isDirectory === true && /^Python\d+$/.test(entry.name)) {
+            candidates.push([joinP(pyRoot, entry.name, 'Scripts', 'loopx.exe')]);
+          }
+        }
+      } catch (_) {}
       let found = null;
       for (const prefix of candidates) {
         try {
-          const out = await shellExec([...prefix, '--version'], 15000);
+          const out = await shellExec([...prefix, '--version'], 8000);
           const version = ((out.stdout || '') + (out.stderr || '')).trim().split(/\r?\n/)[0] || '';
           probes.push({ argvPrefix: prefix, ok: true, version });
           found = { argvPrefix: prefix, version };

@@ -11,14 +11,27 @@ const path = require('path');
 
 // Invocation candidates, probed in order. `python -m loopx` does NOT work
 // (loopx has no __main__.py) — the module form must target loopx.cli.
-// A source checkout (srcDir, set in the UI settings) is the last resort,
-// injected via PYTHONPATH.
+// The worker process may inherit a restricted PATH (the host app can be
+// launched from an environment without the Python Scripts dir), so common
+// absolute locations of the pip console-script are probed directly too.
 function candidatePrefixes(srcDir) {
   const list = [
     { argv: ['loopx'] },
     { argv: ['python', '-m', 'loopx.cli'] },
     { argv: ['py', '-3', '-m', 'loopx.cli'] },
   ];
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) {
+    const pyRoot = path.join(localAppData, 'Programs', 'Python');
+    let versions = [];
+    try {
+      versions = fs.readdirSync(pyRoot).filter((name) => /^Python\d+$/.test(name));
+    } catch (_) {}
+    for (const version of versions) {
+      const exe = path.join(pyRoot, version, 'Scripts', 'loopx.exe');
+      if (fs.existsSync(exe)) list.push({ argv: [exe] });
+    }
+  }
   if (srcDir && fs.existsSync(path.join(srcDir, 'loopx', 'cli.py'))) {
     list.push({ argv: ['python', '-m', 'loopx.cli'], env: { PYTHONPATH: srcDir } });
     list.push({ argv: ['py', '-3', '-m', 'loopx.cli'], env: { PYTHONPATH: srcDir } });
@@ -310,7 +323,7 @@ async function detectLoopx(customPrefix, srcDir = null) {
   const probes = [];
   for (const prefix of candidates) {
     try {
-      const { code, stdout, stderr } = await spawnLoopx(prefix, ['--version'], { timeoutMs: 15000 });
+      const { code, stdout, stderr } = await spawnLoopx(prefix, ['--version'], { timeoutMs: 8000 });
       const version = (stdout + stderr).trim().split(/\r?\n/)[0] || '';
       const label = prefix.env ? [...prefix.argv, `(PYTHONPATH=${prefix.env.PYTHONPATH})`] : prefix.argv;
       probes.push({ argvPrefix: label, ok: code === 0, version });
@@ -319,6 +332,7 @@ async function detectLoopx(customPrefix, srcDir = null) {
         return { found: true, argvPrefix: prefix, version, probes };
       }
     } catch (err) {
+      dbgWorker('detect:probeError', `${prefix.argv.join(' ')}: ${String(err.message || err)}`);
       probes.push({ argvPrefix: prefix.argv, ok: false, error: String(err.message || err) });
     }
   }
