@@ -63,12 +63,6 @@ button, input, select { font: inherit; }
 .btn--primary { border-color: var(--lx-accent); background: var(--lx-accent); color: white; }
 .btn--primary:hover { background: var(--lx-accent-hover); }
 .btn--danger { border-color: color-mix(in srgb, var(--lx-error) 55%, transparent); color: var(--lx-error); }
-.btn--counter { position: relative; }
-#log-count {
-  position: absolute; top: 1px; right: 1px; min-width: 13px; padding: 0 3px;
-  border-radius: 7px; background: var(--lx-accent); color: #fff;
-  font: 600 8.5px/13px var(--lx-mono); text-align: center;
-}
 
 .banner { display: flex; align-items: flex-start; gap: 12px; margin: 8px 12px 0; padding: 9px 11px; border: 1px solid var(--lx-border-strong); border-radius: var(--lx-radius); }
 .banner--warn { border-color: color-mix(in srgb, var(--lx-warn) 45%, transparent); background: color-mix(in srgb, var(--lx-warn) 8%, transparent); }
@@ -301,16 +295,8 @@ button, input, select { font: inherit; }
 .intake-issue__num { flex: 0 0 auto; color: var(--lx-text-mute); font: 11px/1.2 var(--lx-mono); }
 .intake-issue__title { min-width: 0; overflow: hidden; color: var(--lx-text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
-.drawer {
-  inset: 0 0 0 auto; width: min(430px, 94vw); max-width: none; height: 100%; max-height: none; margin: 0;
-  padding: 0; border: 0; border-left: 1px solid var(--lx-border-strong); background: var(--lx-surface); color: var(--lx-text);
-}
-.drawer::backdrop, .dlg::backdrop { background: rgba(0,0,0,.38); }
-.drawer__shell { display: flex; flex-direction: column; height: 100%; }
-.drawer__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 17px 16px 14px; border-bottom: 1px solid var(--lx-border); }
-.drawer__header h2 { margin: 2px 0 0; font: 600 15px/1.35 var(--lx-sans); overflow-wrap: anywhere; }
+.dlg::backdrop { background: rgba(0,0,0,.38); }
 .drawer__kicker { color: var(--lx-text-mute); font: 10.5px/1.2 var(--lx-mono); text-transform: uppercase; }
-.drawer__body { flex: 1; min-height: 0; overflow-y: auto; }
 .detail__section { padding: 14px 16px; border-bottom: 1px solid var(--lx-border); }
 .detail__label { margin-bottom: 7px; color: var(--lx-text-mute); font-size: 10px; font-weight: 650; text-transform: uppercase; }
 .detail__action { color: var(--lx-text); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
@@ -358,11 +344,6 @@ button, input, select { font: inherit; }
 .countdown { color: var(--lx-text-mute); font: 11px/1.4 var(--lx-mono); }
 .countdown--err, .goal__reason--err, .goal__lastrun--err { color: var(--lx-error); }
 
-.log-panel__body { display: flex; flex: 1; flex-direction: column; gap: 3px; min-height: 0; padding: 12px 14px; overflow: auto; background: var(--lx-bg); color: var(--lx-text-soft); font: 11px/1.5 var(--lx-mono); }
-.log-line { white-space: pre-wrap; word-break: break-all; }
-.log-line--err { color: var(--lx-error); }
-.log-line .t { margin-right: 7px; color: var(--lx-text-mute); }
-
 .dlg { min-width: min(360px, 92vw); max-width: min(520px, 94vw); padding: 0; border: 1px solid var(--lx-border-strong); border-radius: var(--lx-radius); background: var(--lx-surface); color: var(--lx-text); }
 .dlg--wide { width: min(720px, 86vw); max-width: 94vw; }
 .dlg__form { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
@@ -390,8 +371,6 @@ button, input, select { font: inherit; }
 .detail-panel__body { display: flex; flex-direction: column; }
 .activity-stream--panel { flex: 1; max-height: none; border: 0; padding: 12px 14px; }
 .activity-empty { padding: 10px 2px; color: var(--lx-text-mute); font-size: 11.5px; }
-.log-panel__filters { display: flex; align-items: center; gap: 6px; }
-.log-panel__filters .btn.is-active { border-color: var(--lx-accent); color: var(--lx-accent); }
 .run-argv { max-height: 160px; margin: 0; padding: 9px 10px; overflow: auto; border: 1px solid var(--lx-border); border-radius: 5px; background: var(--lx-bg); font: 11px/1.45 var(--lx-mono); white-space: pre-wrap; word-break: break-all; }
 .raw-body { max-height: 54vh; }
 .issue-preview { display: flex; flex-direction: column; gap: 5px; max-height: 240px; padding: 9px 10px; overflow: auto; border: 1px solid var(--lx-border); border-radius: 5px; background: var(--lx-bg); font-size: 12px; }

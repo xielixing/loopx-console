@@ -34,9 +34,6 @@ const I18N = {
     retry: '重试',
     notFoundTitle: '未检测到 loopx CLI',
     notFoundHint: '请先安装 loopx：在系统终端执行 pip install git+https://github.com/huangruiteng/loopx.git（需要 Python 与 git），或点击重试。',
-    logTitle: '心跳与执行日志',
-    logFilterAll: '全部',
-    logFilterErrors: '仅错误',
     runOnce: '执行一次',
     resumeTask: '继续任务',
     resumeTaskHint: '继续该任务：恢复心跳监控与自动执行',
@@ -194,9 +191,6 @@ const I18N = {
     retry: 'Retry',
     notFoundTitle: 'loopx CLI not found',
     notFoundHint: 'Install loopx first: run pip install git+https://github.com/huangruiteng/loopx.git in your own terminal (requires Python and git), or retry.',
-    logTitle: 'Heartbeat & execution log',
-    logFilterAll: 'All',
-    logFilterErrors: 'Errors only',
     runOnce: 'Run once',
     resumeTask: 'Resume task',
     resumeTaskHint: 'Resume this task: restore heartbeat and auto-run',
@@ -522,41 +516,12 @@ async function dbgUi(tag, detail) {
 }
 
 // ── logging ───────────────────────────────────────────────
-// The global log is a diagnostic surface, not a chat feed: the toolbar badge
-// counts only errors, and the drawer defaults to an errors-only view so steady
-// heartbeat chatter never greets the user as a growing number.
-let logFilter = 'errors';
-
-function renderLogBody() {
-  const body = document.getElementById('log-body');
-  body.replaceChildren();
-  const lines = logFilter === 'errors' ? S.logs.filter((entry) => entry.isErr) : S.logs;
-  for (const entry of lines) {
-    const div = document.createElement('div');
-    div.className = 'log-line' + (entry.isErr ? ' log-line--err' : '');
-    const ts = document.createElement('span');
-    ts.className = 't';
-    ts.textContent = entry.time;
-    div.appendChild(ts);
-    div.appendChild(document.createTextNode(entry.msg));
-    body.appendChild(div);
-  }
-  body.scrollTop = body.scrollHeight;
-}
-
+// Diagnostic trace kept in memory for debugging; the user-facing log surface
+// is the per-task activity panel, so there is no global log drawer anymore.
 function log(msg, isErr = false) {
   const time = new Date().toTimeString().slice(0, 8);
   S.logs.push({ time, msg, isErr });
   if (S.logs.length > 500) S.logs.splice(0, S.logs.length - 500);
-  const errors = S.logs.filter((entry) => entry.isErr).length;
-  const count = document.getElementById('log-count');
-  if (errors > 0) {
-    count.textContent = String(errors);
-    count.hidden = false;
-  } else {
-    count.hidden = true;
-  }
-  renderLogBody();
 }
 
 // ── config persistence ────────────────────────────────────
@@ -2133,22 +2098,6 @@ document.getElementById('btn-settings').addEventListener('click', () => {
     if (await detect()) refreshGoals();
   };
   dlg.showModal();
-});
-
-document.getElementById('btn-logs').addEventListener('click', () => {
-  renderLogBody();
-  document.getElementById('dlg-logs').showModal();
-});
-function setLogFilter(filter) {
-  logFilter = filter;
-  document.getElementById('log-filter-all').classList.toggle('is-active', filter === 'all');
-  document.getElementById('log-filter-errors').classList.toggle('is-active', filter === 'errors');
-  renderLogBody();
-}
-document.getElementById('log-filter-all').addEventListener('click', () => setLogFilter('all'));
-document.getElementById('log-filter-errors').addEventListener('click', () => setLogFilter('errors'));
-document.getElementById('btn-close-logs').addEventListener('click', () => {
-  document.getElementById('dlg-logs').close();
 });
 
 document.getElementById('btn-copy-raw').addEventListener('click', async (e) => {
