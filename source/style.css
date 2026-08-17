@@ -152,6 +152,8 @@ button, input, select { font: inherit; }
 .zone-count { margin-left: auto; color: var(--lx-text-mute); font: 11px/1 var(--lx-mono); }
 .zone-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .zone-empty { padding: 14px 8px; color: var(--lx-text-mute); font-size: 11.5px; text-align: center; }
+.zone-empty--loading { animation: empty-pulse 1.6s ease-in-out infinite; }
+@keyframes empty-pulse { 50% { opacity: .45; } }
 /* Directory rows in the 进行中 rail. */
 .run-item {
   display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 8px 9px;

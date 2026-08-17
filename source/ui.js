@@ -14,6 +14,23 @@ let BOOT_RENDER_COUNT = 0;
 const bootMs = () => Math.round(performance.now() - BOOT_T0);
 const themeProbe = () => String(getComputedStyle(document.documentElement).getPropertyValue('--bitfun-bg')).trim() || '(none)';
 
+// Release the theme gate from index.html: the host injects appearance vars
+// asynchronously, so painting the fallback palette first would flash. If the
+// vars never arrive, a short deadline still reveals the app.
+(function themeGate() {
+  const release = () => { document.documentElement.style.visibility = ''; };
+  if (themeProbe() !== '(none)') {
+    release();
+  } else {
+    const timer = setTimeout(release, 400);
+    app.onAppearanceChange((payload) => {
+      dbgUi('theme:applied', `t=${bootMs()}ms mode=${payload && payload.mode}`);
+      clearTimeout(timer);
+      release();
+    });
+  }
+})();
+
 const I18N = {
   'zh-CN': {
     title: 'LoopX 控制台',
@@ -55,6 +72,7 @@ const I18N = {
     groupPaused: '已停表',
     groupError: '异常',
     colEmpty: '暂无',
+    loadingGoals: '正在读取任务…',
     presenceLive: '心跳运行中',
     presencePaused: '心跳已暂停',
     presenceIdle: '心跳未启动',
@@ -210,6 +228,7 @@ const I18N = {
     groupPaused: 'Stopped',
     groupError: 'Errors',
     colEmpty: 'Nothing here',
+    loadingGoals: 'Loading tasks…',
     presenceLive: 'Heartbeat live',
     presencePaused: 'Heartbeat paused',
     presenceIdle: 'Heartbeat idle',
@@ -349,6 +368,7 @@ const S = {
   },
   detect: null,
   goals: new Map(), // goalId -> G
+  bootLoading: true, // initial goals refresh in flight
   agentSessionByGoal: new Map(), // goalId -> host agent sessionId (context reuse)
   timer: null,
   countdownTimer: null,
@@ -1581,6 +1601,7 @@ document.getElementById('btn-close-goal').addEventListener('click', () => {
 function displayFingerprint() {
   const parts = [
     String(S.goals.size), app.locale,
+    S.bootLoading ? 'loading' : 'ready',
     S.intakeDraft ? `${S.intakeDraft.objective}|${S.intakeDraft.stage}` : '',
   ];
   for (const g of S.goals.values()) {
@@ -1657,8 +1678,8 @@ function renderAllGoals(force = false) {
   reviewList.replaceChildren();
   if (reviewGoals.length === 0) {
     const none = document.createElement('div');
-    none.className = 'zone-empty';
-    none.textContent = t('colEmpty');
+    none.className = 'zone-empty' + (S.bootLoading ? ' zone-empty--loading' : '');
+    none.textContent = S.bootLoading ? t('loadingGoals') : t('colEmpty');
     reviewList.appendChild(none);
   }
   for (const g of reviewGoals) reviewList.appendChild(buildGoalCard(g));
@@ -1674,8 +1695,8 @@ function renderAllGoals(force = false) {
   if (S.intakeDraft) activeList.appendChild(buildIntakeRow(S.intakeDraft));
   if (activeGoals.length === 0 && pendingCount === 0) {
     const none = document.createElement('div');
-    none.className = 'zone-empty';
-    none.textContent = t('colEmpty');
+    none.className = 'zone-empty' + (S.bootLoading ? ' zone-empty--loading' : '');
+    none.textContent = S.bootLoading ? t('loadingGoals') : t('colEmpty');
     activeList.appendChild(none);
   }
   for (const g of activeGoals) activeList.appendChild(buildRunItem(g));
@@ -2727,5 +2748,9 @@ window.addEventListener('beforeunload', () => {
   const detected = await detectedPromise;
   dbgUi('boot:detected', `t=${bootMs()}ms found=${detected} theme=${themeProbe()}`);
   await goalsPromise;
-  dbgUi('boot:done', `t=${bootMs()}ms goals=${S.goals.size} theme=${themeProbe()}`);
+  S.bootLoading = false;
+  const paints = performance.getEntriesByType('paint')
+    .map((p) => `${p.name}@${Math.round(p.startTime)}ms`).join(' ') || '(no paint entries)';
+  dbgUi('boot:done', `t=${bootMs()}ms goals=${S.goals.size} theme=${themeProbe()} paint=${paints}`);
+  requestRender(true);
 })();

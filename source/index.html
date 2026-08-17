@@ -4,6 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title data-i18n="title">LoopX 控制台</title>
+  <!-- Theme gate: the host injects appearance CSS variables asynchronously.
+       Painting with the fallback palette first would flash dark→light (or
+       the reverse). ui.js releases visibility once the vars arrive (or on a
+       short deadline). -->
+  <style>html{visibility:hidden}</style>
 </head>
 <body>
   <div id="app" class="lx">
