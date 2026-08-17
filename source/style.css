@@ -357,9 +357,6 @@ button, input, select { font: inherit; }
   background: var(--lx-surface-2); color: var(--lx-text); font: 12px/1.3 var(--lx-mono);
 }
 .field input:focus-visible, .field select:focus-visible { outline: 2px solid var(--lx-accent); outline-offset: 1px; }
-.field__row { display: flex; gap: 6px; }
-.field__row input { flex: 1; min-width: 0; }
-.field__value { flex: 1; min-width: 0; padding: 6px 8px; overflow: hidden; border: 1px solid var(--lx-border); border-radius: 5px; color: var(--lx-text-mute); font: 11px/1.4 var(--lx-mono); text-overflow: ellipsis; white-space: nowrap; }
 .btn--small { min-height: 26px; padding: 3px 9px; font-size: 11.5px; }
 .btn--tiny { min-height: 22px; padding: 2px 8px; font-size: 10.5px; border-radius: 5px; }
 /* Lifecycle actions live on the cards/rows themselves. */

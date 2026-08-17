@@ -48,9 +48,6 @@
         <button id="btn-refresh" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="refresh">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 2v3h-3"/></svg>
         </button>
-        <button id="btn-settings" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="settings">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4"/></svg>
-        </button>
       </div>
     </header>
 
@@ -116,25 +113,6 @@
         </div>
       </section>
     </main>
-
-    <dialog id="dlg-settings" class="dlg">
-      <form method="dialog" class="dlg__form">
-        <h2 data-i18n="settings">设置</h2>
-        <p class="dlg__note" data-i18n="settingsNote">仅当自动探测失败时才需要配置。</p>
-        <label class="field"><span data-i18n="setPrefix">loopx 调用命令（JSON 数组，留空自动探测）</span><input id="set-prefix" type="text" spellcheck="false" placeholder='["loopx"]' /></label>
-        <label class="field"><span data-i18n="setSrcDir">loopx 源码目录</span><input id="set-srcdir" type="text" spellcheck="false" placeholder="C:\path\to\loopx" /></label>
-        <label class="field"><span data-i18n="setModel">执行模型（长程任务的默认值；每个任务可在详情里单独覆盖）</span><select id="set-model"></select></label>
-        <div class="field">
-          <span data-i18n="settingsProjectDir">本地项目目录（可选 · 高级：修复你自己的 checkout，而不是自动克隆）</span>
-          <div class="field__row">
-            <span id="set-project-value" class="field__value" data-i18n="projectDirNone">未设置（默认自动克隆到小应用数据目录）</span>
-            <button type="button" id="btn-pick-project" class="btn btn--small" data-i18n="chooseProjectDir">选择</button>
-            <button type="button" id="btn-clear-project" class="btn btn--small" data-i18n="clearProjectDir">清除</button>
-          </div>
-        </div>
-        <div class="dlg__actions"><button type="button" value="cancel" class="btn dlg-cancel" data-i18n="cancel">取消</button><button value="save" id="btn-save-settings" class="btn btn--primary" data-i18n="save">保存</button></div>
-      </form>
-    </dialog>
 
     <dialog id="dlg-intake" class="dlg dlg--wide">
       <form method="dialog" class="dlg__form">

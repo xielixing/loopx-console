@@ -30,7 +30,6 @@ const I18N = {
   'zh-CN': {
     title: 'LoopX 控制台',
     refresh: '刷新目标列表',
-    settings: '设置',
     retry: '重试',
     notFoundTitle: '未检测到 loopx CLI',
     notFoundHint: '请先安装 loopx：在系统终端执行 pip install git+https://github.com/huangruiteng/loopx.git（需要 Python 与 git），或点击重试。',
@@ -58,10 +57,6 @@ const I18N = {
     retryIn: (n, t) => `↻ 轮询失败 ×${n} · ${t} 后重试`,
     waitingOn: (w) => `等待：${w}`,
     cancel: '取消',
-    save: '保存',
-    settingsNote: '仅当自动探测失败时才需要配置。',
-    setPrefix: 'loopx 调用命令（JSON 数组，留空自动探测）',
-    setSrcDir: 'loopx 源码目录（可选，探测失败时作为 PYTHONPATH 兜底）',
     needProject: '执行 run-once 需要先选择项目目录',
     needAgent: '该目标没有已注册的 agent，请先填写 agent id',
     detected: (v) => `已检测到 loopx：${v}`,
@@ -167,15 +162,10 @@ const I18N = {
     adopt: '接管',
     adoptedLabel: '已接管',
     adoptFailed: (e) => `接管失败：${e}`,
-    setModel: '执行模型（长程任务的默认值；每个任务可在详情里单独覆盖）',
     modelAuto: '自动（跟随 BitFun 策略）',
     modelPrimaryTag: '主模型',
     modelFollowGlobal: '跟随全局默认',
     modelChanged: (m) => `执行模型已切换为 ${m}`,
-    settingsProjectDir: '本地项目目录（可选 · 高级：修复你自己的 checkout，而不是自动克隆）',
-    projectDirNone: '未设置（默认自动克隆到小应用数据目录）',
-    chooseProjectDir: '选择',
-    clearProjectDir: '清除',
     taskNeedAgent: '请先在设置中配置新任务默认 Agent。',
     taskCreated: (id) => `任务 ${id} 已创建`,
     taskRepoMismatch: (expected, actual) => `链接指向 ${expected}，当前项目是 ${actual}。请切换到正确的本地 checkout。`,
@@ -187,7 +177,6 @@ const I18N = {
   'en-US': {
     title: 'LoopX Console',
     refresh: 'Refresh goals',
-    settings: 'Settings',
     retry: 'Retry',
     notFoundTitle: 'loopx CLI not found',
     notFoundHint: 'Install loopx first: run pip install git+https://github.com/huangruiteng/loopx.git in your own terminal (requires Python and git), or retry.',
@@ -215,10 +204,6 @@ const I18N = {
     retryIn: (n, t) => `↻ poll failed ×${n} · retry in ${t}`,
     waitingOn: (w) => `waiting on: ${w}`,
     cancel: 'Cancel',
-    save: 'Save',
-    settingsNote: 'Only needed when auto-detection fails.',
-    setPrefix: 'loopx invocation (JSON array, empty = auto-detect)',
-    setSrcDir: 'loopx source checkout (optional PYTHONPATH fallback)',
     needProject: 'Run-once requires a project directory',
     needAgent: 'This goal has no registered agent — type an agent id first',
     detected: (v) => `loopx detected: ${v}`,
@@ -324,15 +309,10 @@ const I18N = {
     adopt: 'Adopt',
     adoptedLabel: 'Adopted',
     adoptFailed: (e) => `Adopt failed: ${e}`,
-    setModel: 'Execution model (global default for long-running tasks; each task can override it in its details)',
     modelAuto: 'Auto (follow BitFun policy)',
     modelPrimaryTag: 'primary',
     modelFollowGlobal: 'Follow global default',
     modelChanged: (m) => `Execution model switched to ${m}`,
-    settingsProjectDir: 'Local project directory (optional · advanced: fix your own checkout instead of auto-cloning)',
-    projectDirNone: 'Not set (repositories are auto-cloned into the MiniApp data directory)',
-    chooseProjectDir: 'Choose',
-    clearProjectDir: 'Clear',
     taskNeedAgent: 'Configure the default Agent for new tasks in Settings first.',
     taskCreated: (id) => `Task ${id} created`,
     taskRepoMismatch: (expected, actual) => `The link targets ${expected}, but the current project is ${actual}. Select the matching local checkout.`,
@@ -2027,77 +2007,12 @@ async function refreshGoals() {
   }
 }
 
-// ── toolbar / settings wiring ─────────────────────────────
-function updateProjectValue() {
-  const el = document.getElementById('set-project-value');
-  if (S.config.projectDir) {
-    el.textContent = S.config.projectDir;
-    el.removeAttribute('data-i18n');
-  } else {
-    el.textContent = '';
-    el.setAttribute('data-i18n', 'projectDirNone');
-    applyI18n();
-  }
-}
-
-async function pickProjectDir() {
-  try {
-    const picked = await app.dialog.open({ directory: true });
-    const dir = Array.isArray(picked) ? picked[0] : picked;
-    if (!dir) return;
-    S.config.projectDir = dir;
-    await saveConfig();
-    updateProjectValue();
-    S.goals.clear();
-    renderAllGoals(true);
-    await refreshGoals();
-  } catch (err) {
-    log(`dialog error: ${err.message || err}`, true);
-  }
-}
-
-document.getElementById('btn-pick-project').addEventListener('click', pickProjectDir);
-document.getElementById('btn-clear-project').addEventListener('click', async () => {
-  S.config.projectDir = null;
-  await saveConfig();
-  updateProjectValue();
-  S.goals.clear();
-  renderAllGoals(true);
-  await refreshGoals();
-});
-
+// ── toolbar wiring ────────────────────────────────────────
+// (Settings was removed: model selection lives in the composer, loopx is
+// auto-detected, and the local-checkout override is not needed yet.)
 document.getElementById('btn-refresh').addEventListener('click', refreshGoals);
 document.getElementById('btn-retry-detect').addEventListener('click', async () => {
   if (await detect()) refreshGoals();
-});
-
-document.getElementById('btn-settings').addEventListener('click', () => {
-  document.getElementById('set-prefix').value = S.config.argvPrefix ? JSON.stringify(S.config.argvPrefix) : '';
-  document.getElementById('set-srcdir').value = S.config.srcDir || '';
-  fillModelSelect(document.getElementById('set-model'), S.config.defaultModel || 'auto', false);
-  updateProjectValue();
-  const dlg = document.getElementById('dlg-settings');
-  dlg.returnValue = 'cancel'; // avoid stale 'save' from a previous open
-  dlg.onclose = async () => {
-    if (dlg.returnValue !== 'save') return;
-    const prefixText = document.getElementById('set-prefix').value.trim();
-    if (prefixText) {
-      try {
-        const parsed = JSON.parse(prefixText);
-        const isArgvArray = Array.isArray(parsed) && parsed.every((x) => typeof x === 'string');
-        const isPrefixObj = parsed && typeof parsed === 'object' && Array.isArray(parsed.argv);
-        if (isArgvArray || isPrefixObj) S.config.argvPrefix = parsed;
-      } catch (_) { log('invalid argvPrefix JSON, ignored', true); }
-    } else {
-      S.config.argvPrefix = null;
-    }
-    S.config.srcDir = document.getElementById('set-srcdir').value.trim();
-    S.config.defaultModel = document.getElementById('set-model').value || 'auto';
-    await saveConfig();
-    syncComposerModel();
-    if (await detect()) refreshGoals();
-  };
-  dlg.showModal();
 });
 
 document.getElementById('btn-copy-raw').addEventListener('click', async (e) => {
@@ -2621,7 +2536,6 @@ document.getElementById('task-input').addEventListener('keydown', (event) => {
 document.getElementById('btn-create-task').addEventListener('click', createTaskFromInput);
 document.getElementById('composer-model').addEventListener('change', async () => {
   S.config.defaultModel = document.getElementById('composer-model').value || 'auto';
-  fillModelSelect(document.getElementById('set-model'), S.config.defaultModel, false);
   await saveConfig();
   log(t('modelChanged', S.config.defaultModel));
 });
@@ -2703,7 +2617,6 @@ window.addEventListener('beforeunload', () => {
   } catch (err) {
     dbgUi('boot:modelsError', String(err && err.message || err));
   }
-  fillModelSelect(document.getElementById('set-model'), S.config.defaultModel || 'auto', false);
   syncComposerModel();
   applyI18n();
   dbgUi('boot:i18nApplied', `t=${bootMs()}ms`);
