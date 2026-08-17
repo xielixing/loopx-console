@@ -375,9 +375,11 @@ function turnPreamble({ projectDir, goalId, agentId }) {
     `You are the execution agent for LoopX goal "${goalId}" (agent_id: ${agentId}).`,
     `Repository checkout: ${projectDir}`,
     `LoopX registry: ${registry} — always pass --registry "${registry}" to loopx commands.`,
-    'The loopx CLI is available on PATH (fallback: python -m loopx.cli).',
+    'The loopx CLI is already installed and working on PATH (fallback: python -m loopx.cli); do NOT run "loopx --version" or "where loopx" more than once per turn.',
+    'Shell note: commands run in PowerShell, not bash. LoopX example commands that end in --turn-instance-id "${LOOPX_TURN:?}" are bash syntax — DO NOT copy them. The --turn-instance-id flag is optional: omit it entirely.',
     'Rules: work only inside the repository checkout; never force-kill processes you did not start;',
     'record progress through loopx (todo complete / evidence) before finishing the turn.',
+    'If a loopx command fails, read its error message and fix the invocation — never blindly retry the same command more than twice.',
     '',
   ].join('\n');
 }

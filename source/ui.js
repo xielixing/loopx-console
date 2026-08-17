@@ -1980,11 +1980,22 @@ function toolBrief(e, te) {
   try {
     const p = typeof rawParams === 'string' ? JSON.parse(rawParams) : rawParams;
     if (!p || typeof p !== 'object') return '';
+    if (Array.isArray(p)) {
+      return p.map(String).join(' ').slice(0, 120);
+    }
     const brief = p.command || p.cmd || p.file_path || p.filePath || p.path
       || p.query || p.pattern || p.url || p.target_file || '';
     return String(brief).slice(0, 120);
   } catch (_) {
-    return '';
+    // The start-phase params buffer is often a partial JSON string. Fall back
+    // to regex so ExecCommand lines still show WHICH command ran instead of
+    // collapsing every distinct command into one bare counter.
+    const text = String(rawParams);
+    const cmdMatch = text.match(/"(?:cmd|command)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (cmdMatch) return cmdMatch[1].replace(/\\(.)/g, '$1').slice(0, 120);
+    const arrMatch = text.match(/^\s*\["((?:[^"\\]|\\.)*)"/);
+    if (arrMatch) return arrMatch[1].replace(/\\(.)/g, '$1').slice(0, 120);
+    return text.slice(0, 80);
   }
 }
 
