@@ -141,7 +141,7 @@ button, input, select { font: inherit; }
   border-right: 1px solid var(--lx-border); background: transparent;
 }
 .run-rail__list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px; }
-.zone-head { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 9px; border-bottom: 1px solid var(--lx-border); font-size: 12px; font-weight: 600; }
+.zone-head { display: flex; flex-direction: column; gap: 3px; padding: 12px 12px 4px; font-size: 12px; font-weight: 600; }
 .zone-head-row { display: flex; align-items: center; gap: 7px; }
 .zone-sub { font-size: 10.5px; font-weight: 400; color: var(--lx-text-mute); }
 .zone-count { margin-left: auto; color: var(--lx-text-mute); font: 11px/1 var(--lx-mono); }
