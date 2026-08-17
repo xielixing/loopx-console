@@ -76,7 +76,10 @@ button, input, select { font: inherit; }
 .probe-detail { margin: 4px 0 0; padding: 6px 8px; max-height: 100px; overflow: auto; background: var(--lx-bg); color: var(--lx-text-mute); font: 11px/1.4 var(--lx-mono); white-space: pre-wrap; }
 
 .composer {
-  flex: 0 0 auto; padding: 0 14px 12px; background: var(--lx-bg);
+  /* 72px right inset keeps the send button clear of the host's floating
+     mini-chat bubble (fixed at right:20px, 42px wide) in the bottom-right
+     corner of the viewport. */
+  flex: 0 0 auto; padding: 0 72px 12px 14px; background: var(--lx-bg);
 }
 .composer__box {
   width: 100%; min-height: 64px; margin: 0 auto; overflow: hidden;
@@ -122,7 +125,7 @@ button, input, select { font: inherit; }
 .board {
   display: grid; grid-template-columns: repeat(2, 290px);
   grid-template-rows: minmax(0, 1fr) auto; gap: 12px;
-  flex: 0 0 auto; min-height: 0; padding: 14px 14px 8px;
+  flex: 0 0 auto; min-height: 0; padding: 14px 72px 8px 14px;
   overflow: auto; background: var(--lx-bg);
 }
 /* Master-detail: the selected goal's info + live activity stream takes the
@@ -357,6 +360,6 @@ button, input, select { font: inherit; }
 
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; }
-  .composer { padding: 0 12px 12px; }
+  .composer { padding: 0 72px 12px 12px; }
   .composer__box { border-radius: 10px; }
 }
