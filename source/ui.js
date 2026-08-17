@@ -876,10 +876,11 @@ function isGated(g) {
 
 // The board mirrors an issue tracker, but attention comes first: ONLY the two
 // things that deserve a column exist — work that needs the human (blocking)
-// and work that is running. Everything else (queued, terminal, stopped,
-// errors, other-host) collapses into the quiet "more" chips footer.
+// and work that is running. Queued goals are intentionally invisible (they
+// surface the moment they run or need approval); terminal/stopped/error and
+// other-host goals collapse into the quiet "more" chips footer.
 const PRIMARY_GROUPS = ['review', 'active'];
-const ARCHIVE_GROUPS = ['backlog', 'done', 'paused', 'error'];
+const ARCHIVE_GROUPS = ['done', 'paused', 'error'];
 const GROUP_I18N_KEY = {
   backlog: 'groupBacklog', active: 'groupActive', review: 'groupReview',
   done: 'groupDone', paused: 'groupPaused', error: 'groupError',
@@ -1598,12 +1599,8 @@ function renderAllGoals(force = false) {
   for (const g of S.goals.values()) (isOwnedGoal(g.goalId) ? owned : other).push(g);
   // The board is always visible — empty columns are part of the default view;
   // the composer sits at the bottom as its command bar.
-  const buckets = new Map([...PRIMARY_GROUPS, ...ARCHIVE_GROUPS].map((k) => [k, []]));
+  const buckets = new Map([...PRIMARY_GROUPS, 'backlog', ...ARCHIVE_GROUPS].map((k) => [k, []]));
   for (const g of owned) buckets.get(goalGroup(g)).push(g);
-  // Queued chips order: runs the scheduler wants NOW first, then by due time.
-  buckets.get('backlog').sort((a, b) => (
-    (b.last?.shouldRun ? 1 : 0) - (a.last?.shouldRun ? 1 : 0)
-  ) || (a.nextDueAt - b.nextDueAt));
   for (const key of PRIMARY_GROUPS) {
     const goals = buckets.get(key);
     const pendingCount = key === 'active' && S.intakeDraft ? 1 : 0;

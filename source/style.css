@@ -76,13 +76,13 @@ button, input, select { font: inherit; }
 .probe-detail { margin: 4px 0 0; padding: 6px 8px; max-height: 100px; overflow: auto; background: var(--lx-bg); color: var(--lx-text-mute); font: 11px/1.4 var(--lx-mono); white-space: pre-wrap; }
 
 .composer {
-  /* 72px right inset keeps the send button clear of the host's floating
-     mini-chat bubble (fixed at right:20px, 42px wide) in the bottom-right
-     corner of the viewport. */
-  flex: 0 0 auto; padding: 0 72px 12px 14px; background: var(--lx-bg);
+  /* The 72px right inset keeps the send button clear of the host's floating
+     mini-chat bubble (fixed at right:20px, 42px wide); the box itself is
+     centered symmetrically within the remaining space. */
+  flex: 0 0 auto; padding: 8px 72px 12px 14px; background: var(--lx-bg);
 }
 .composer__box {
-  width: 100%; min-height: 64px; margin: 0 auto; overflow: hidden;
+  width: min(960px, 100%); min-height: 64px; margin: 0 auto; overflow: hidden;
   border: 1px solid var(--lx-border-strong); border-radius: 12px; background: var(--lx-surface);
   box-shadow: 0 2px 12px rgba(0,0,0,.06);
   transition: min-height 180ms ease;
@@ -115,24 +115,30 @@ button, input, select { font: inherit; }
 .composer__submit:hover { background: var(--lx-accent-hover); }
 .composer__submit:disabled { opacity: .42; cursor: not-allowed; }
 .composer__submit:focus-visible { outline: 2px solid var(--lx-accent); outline-offset: 2px; }
-.composer__feedback { width: 100%; margin: 0 0 6px; padding: 0 4px; color: var(--lx-text-mute); font-size: 11px; }
+.composer__feedback { width: min(960px, 100%); margin: 0 auto 6px; padding: 0 4px; color: var(--lx-text-mute); font-size: 11px; }
 .composer__feedback--error { color: var(--lx-error); }
 .composer__feedback--ok { color: var(--lx-ok); }
 
 .layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* The board fills the view; the composer is its bottom command bar. */
-.workspace { flex: 1; min-height: 0; display: flex; overflow: auto; }
+/* One big frame ties the card columns to the detail/log area: click a card on
+   the left, its live log streams on the right — visibly the same unit. */
+.workspace {
+  flex: 1; min-height: 0; margin: 8px 14px 0;
+  display: flex; overflow: hidden;
+  border: 1px solid var(--lx-border); border-radius: 14px;
+  background: var(--lx-bg);
+}
 .board {
   display: grid; grid-template-columns: repeat(2, 290px);
   grid-template-rows: minmax(0, 1fr) auto; gap: 12px;
-  flex: 0 0 auto; min-height: 0; padding: 14px 72px 8px 14px;
-  overflow: auto; background: var(--lx-bg);
+  flex: 0 0 auto; min-height: 0; padding: 12px;
+  overflow: auto; background: transparent;
 }
 /* Master-detail: the selected goal's info + live activity stream takes the
    remaining width beside the two narrow card columns. */
 .detail-panel {
   flex: 1 1 auto; min-width: 340px; display: flex; flex-direction: column;
-  min-height: 0; margin: 0 0 8px; border-left: 1px solid var(--lx-border);
+  min-height: 0; border-left: 1px solid var(--lx-border);
   background: var(--lx-surface);
 }
 .detail-empty {
