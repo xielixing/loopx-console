@@ -535,8 +535,18 @@
       }
       let reuseDir = null;
       if (requestedRepos.length === 1 && !projectDir) {
-        for (const dir of (Array.isArray(projectDirs) ? projectDirs : [])) {
-          if (typeof dir !== 'string' || !dir) continue;
+        const searchDirs = Array.isArray(projectDirs)
+          ? projectDirs.filter((dir) => typeof dir === 'string' && dir)
+          : [];
+        // The stable clone cache is searched too, so a fresh MiniApp import
+        // (empty config) reuses the cached checkout immediately.
+        try {
+          const entries = await app.fs.readdir(cloneCacheRoot);
+          for (const entry of Array.isArray(entries) ? entries : []) {
+            if (entry && entry.isDirectory === true) searchDirs.push(entry.path);
+          }
+        } catch (_) {}
+        for (const dir of searchDirs) {
           if (await projectGithubRepository(dir) === requestedRepos[0]) {
             reuseDir = dir;
             break;

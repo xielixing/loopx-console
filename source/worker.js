@@ -817,12 +817,23 @@ module.exports = {
     }
     // No global checkout, or the caller deliberately bypassed it: before
     // offering a fresh clone, look for an existing checkout of this exact
-    // repository among the console's recorded project directories. A follow-up
-    // issue then reuses the clone instead of cloning the repo twice.
+    // repository among the console's recorded project directories AND the
+    // stable clone cache — a fresh MiniApp import (empty config) then reuses
+    // the cached checkout immediately, without even a GitHub lookup.
     let reuseDir = null;
     if (requestedRepos.length === 1 && !projectDir) {
-      for (const dir of (Array.isArray(projectDirs) ? projectDirs : [])) {
-        if (typeof dir !== 'string' || !dir) continue;
+      const searchDirs = Array.isArray(projectDirs)
+        ? projectDirs.filter((dir) => typeof dir === 'string' && dir)
+        : [];
+      try {
+        const root = cloneCacheRoot();
+        if (fs.existsSync(root)) {
+          for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+            if (entry.isDirectory()) searchDirs.push(path.join(root, entry.name));
+          }
+        }
+      } catch (_) {}
+      for (const dir of searchDirs) {
         if (projectGithubRepository(dir) === requestedRepos[0]) {
           reuseDir = dir;
           dbgWorker('resolveIntake:reuse', `${requestedRepos[0]} -> ${dir}`);
