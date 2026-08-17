@@ -7,6 +7,13 @@
 
 const app = window.app;
 
+// Boot timeline: timestamps every startup step and the first renders so the
+// "extra flash" on import can be attributed to a step (or to the host).
+const BOOT_T0 = performance.now();
+let BOOT_RENDER_COUNT = 0;
+const bootMs = () => Math.round(performance.now() - BOOT_T0);
+const themeProbe = () => String(getComputedStyle(document.documentElement).getPropertyValue('--bitfun-bg')).trim() || '(none)';
+
 const I18N = {
   'zh-CN': {
     title: 'LoopX 控制台',
@@ -1614,6 +1621,10 @@ function requestRender(force = false) {
 }
 
 function renderAllGoals(force = false) {
+  if (BOOT_RENDER_COUNT < 12) {
+    BOOT_RENDER_COUNT += 1;
+    dbgUi('render', `#${BOOT_RENDER_COUNT} t=${bootMs()}ms force=${force} theme=${themeProbe()}`);
+  }
   const workspace = document.getElementById('workspace-root');
   const active = document.activeElement;
   if (!force && active && workspace.contains(active)
@@ -2692,23 +2703,24 @@ window.addEventListener('beforeunload', () => {
 
 // ── boot ──────────────────────────────────────────────────
 (async function boot() {
-  dbgUi('boot:start', `locale=${app && app.locale}`);
+  dbgUi('boot:start', `t=${bootMs()}ms readyState=${document.readyState} theme=${themeProbe()}`);
   await loadConfig();
-  dbgUi('boot:configLoaded', JSON.stringify({ projectDir: S.config.projectDir || null, argvPrefix: S.config.argvPrefix }));
+  dbgUi('boot:configLoaded', `t=${bootMs()}ms projectDir=${S.config.projectDir || '(none)'} theme=${themeProbe()}`);
   try {
     const catalog = await app.ai.getModels();
     if (Array.isArray(catalog)) S.modelCatalog = catalog;
-    dbgUi('boot:models', `catalog=${S.modelCatalog.length}`);
+    dbgUi('boot:models', `t=${bootMs()}ms catalog=${S.modelCatalog.length}`);
   } catch (err) {
     dbgUi('boot:modelsError', String(err && err.message || err));
   }
   fillModelSelect(document.getElementById('set-model'), S.config.defaultModel || 'auto', false);
   syncComposerModel();
   applyI18n();
+  dbgUi('boot:i18nApplied', `t=${bootMs()}ms`);
   startCountdownLoop();
   updateHeaderStatus();
   const detected = await detect();
-  dbgUi('boot:detected', String(detected));
+  dbgUi('boot:detected', `t=${bootMs()}ms found=${detected} theme=${themeProbe()}`);
   if (detected) await refreshGoals();
-  dbgUi('boot:done', `goals=${S.goals.size}`);
+  dbgUi('boot:done', `t=${bootMs()}ms goals=${S.goals.size} theme=${themeProbe()}`);
 })();
