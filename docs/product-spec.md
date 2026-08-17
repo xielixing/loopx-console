@@ -72,6 +72,18 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 5. 完成后记录 goal 的仓库目录（`projectByGoal`），看板与心跳使用它；
    auto-run 接管。
 
+## 3.1 停止 / 恢复语义
+
+- **停止任务**（任务抽屉内）＝完整停止：取消进行中的 turn、关闭该目标的
+  loopx 心跳监控（不再轮询）、关闭自动执行；状态持久化（`stoppedByGoal`），
+  重启小应用后仍保持停止。恢复时还原此前的心跳与自动执行设置，并立即做
+  一次轮询。
+- **取消运行**＝只停止当前这一次 turn：取消后自动执行关闭（避免立刻重跑），
+  心跳轮询继续，可手动再次执行。
+- loopx 调度策略触发的「已停表」（unchanged ≥ limit → `stop_tick_loop`）
+  是另一套机制：按 loopx 的 reset_token 变化自动恢复，抽屉内的「已暂停 ·
+  点击恢复」只做一次立即轮询。
+
 ## 4. 双层强制
 
 - **客户端**（ui.js）：`taskInputKind` / `firstUnsupportedGithubUrl` 即时反馈，

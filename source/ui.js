@@ -18,7 +18,7 @@ const I18N = {
     logTitle: '心跳与执行日志',
     logFilterAll: '全部',
     logFilterErrors: '仅错误',
-    monitor: '监控',
+    monitor: '心跳监控（自动轮询）',
     agent: 'Agent',
     agentFree: '手动输入 agent id…',
     runOnce: '执行一次',
@@ -26,6 +26,11 @@ const I18N = {
     lastRun: (code, s) => `上次运行 exit=${code} · ${s}s`,
     lastRunCancelled: '上次运行已取消',
     resume: '已暂停 · 点击恢复',
+    stopTask: '停止任务',
+    stopTaskHint: '停止该任务：取消本次运行、关闭心跳监控与自动执行',
+    resumeTask: '恢复任务',
+    taskStopped: (id) => `任务 ${id} 已停止：心跳与自动执行已关闭`,
+    taskResumed: (id) => `任务 ${id} 已恢复：心跳与自动执行已重新开启`,
     nextPoll: (t) => `下次轮询 ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `间隔 ${iv}m（基准 ${base}m ×${mult}^${n}，上限 ${cap}m）`,
     intervalPlain: (iv) => `间隔 ${iv}m`,
@@ -174,7 +179,7 @@ const I18N = {
     logTitle: 'Heartbeat & execution log',
     logFilterAll: 'All',
     logFilterErrors: 'Errors only',
-    monitor: 'Monitor',
+    monitor: 'Heartbeat monitoring (auto-poll)',
     agent: 'Agent',
     agentFree: 'Type agent id…',
     runOnce: 'Run once',
@@ -182,6 +187,11 @@ const I18N = {
     lastRun: (code, s) => `last run exit=${code} · ${s}s`,
     lastRunCancelled: 'last run cancelled',
     resume: 'Paused · click to resume',
+    stopTask: 'Stop task',
+    stopTaskHint: 'Stop this task: cancel the current run, disable heartbeat and auto-run',
+    resumeTask: 'Resume task',
+    taskStopped: (id) => `Task ${id} stopped: heartbeat and auto-run disabled`,
+    taskResumed: (id) => `Task ${id} resumed: heartbeat and auto-run re-enabled`,
     nextPoll: (t) => `next poll in ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `every ${iv}m (base ${base}m ×${mult}^${n}, cap ${cap}m)`,
     intervalPlain: (iv) => `every ${iv}m`,
@@ -338,6 +348,9 @@ const S = {
     projectDir: null, argvPrefix: null, srcDir: '', agentByGoal: {}, monitorByGoal: {},
     projectByGoal: {}, ownedGoals: {}, defaultAgentId: 'bitfun-agent', autoRunByGoal: {},
     defaultModel: 'auto', modelByGoal: {},
+    // Explicit user stops: stoppedByGoal persists the parked state across
+    // restarts; autoRunBeforeStop remembers the auto-run setting to restore.
+    stoppedByGoal: {}, autoRunBeforeStop: {},
   },
   detect: null,
   goals: new Map(), // goalId -> G
@@ -435,10 +448,11 @@ function newGoalState(goalId, info) {
     state: info.state || null,
     waitingOn: info.waitingOn ?? null,
     // v3.2: only owned goals poll by default; other-host goals stay quiet
-    // until the user adopts them.
+    // until the user adopts them. An explicit user stop overrides ownership.
     monitoring: isOwnedGoal(goalId)
-      ? S.config.monitorByGoal[goalId] !== false
+      ? (S.config.monitorByGoal[goalId] !== false && S.config.stoppedByGoal[goalId] !== true)
       : S.config.monitorByGoal[goalId] === true,
+    userStopped: S.config.stoppedByGoal[goalId] === true,
     autoRun: S.config.autoRunByGoal[goalId] === true,
     autoFailCount: 0,
     intervalMin: DEFAULT_INTERVAL_MIN,
@@ -798,6 +812,49 @@ function setAutoRun(g, enabled) {
   if (enabled) maybeAutoRun(g);
 }
 
+// ── stop / resume task ────────────────────────────────────
+// "停止任务" is a FULL stop, not a single-turn cancel: the in-flight run is
+// cancelled, the loopx heartbeat (auto-poll) for this goal is switched off,
+// auto-run is switched off, and the parked state persists across restarts.
+// "取消运行" (cancelGoalRun) remains turn-scoped: it kills only the current
+// run and prevents an immediate relaunch; polling continues.
+async function stopGoalTask(g) {
+  if (g.running) cancelGoalRun(g, null);
+  S.config.autoRunBeforeStop[g.goalId] = g.autoRun === true;
+  if (g.autoRun) setAutoRun(g, false);
+  g.monitoring = false;
+  S.config.monitorByGoal[g.goalId] = false;
+  g.userStopped = true;
+  S.config.stoppedByGoal[g.goalId] = true;
+  await saveConfig();
+  rearmTimer();
+  log(t('taskStopped', g.goalId));
+  recordGoalActivity(g, t('taskStopped', g.goalId));
+  renderGoalDetails(g);
+  renderAllGoals(true);
+}
+
+async function resumeGoalTask(g) {
+  delete S.config.stoppedByGoal[g.goalId];
+  g.userStopped = false;
+  g.monitoring = true;
+  S.config.monitorByGoal[g.goalId] = true;
+  if (S.config.autoRunBeforeStop[g.goalId] === true) {
+    g.autoRun = true;
+    S.config.autoRunByGoal[g.goalId] = true;
+  } else if (S.config.autoRunBeforeStop[g.goalId] === false) {
+    g.autoRun = false;
+    S.config.autoRunByGoal[g.goalId] = false;
+  }
+  delete S.config.autoRunBeforeStop[g.goalId];
+  await saveConfig();
+  log(t('taskResumed', g.goalId));
+  recordGoalActivity(g, t('taskResumed', g.goalId));
+  renderGoalDetails(g);
+  pollNow(g); // immediate fresh decision; auto-run may launch from it
+  renderAllGoals(true);
+}
+
 // ── pause / resume (lifecycle + visibility) ───────────────
 function pauseHeartbeat() {
   if (S.paused) return;
@@ -853,6 +910,7 @@ function isTerminal(g) {
 function goalGroup(g) {
   if (g.running) return 'active';
   if (isTerminal(g)) return 'done';
+  if (g.userStopped) return 'paused';
   if (g.errorCount > 0) return 'error';
   if (g.stopped) return 'paused';
   if (isGated(g)) return 'review';
@@ -1293,33 +1351,37 @@ function renderGoalDetails(g) {
   };
   modelField.appendChild(modelSelect);
   controls.appendChild(modelField);
-  const monitor = document.createElement('label');
-  monitor.className = 'detail__toggle';
-  monitor.appendChild(document.createTextNode(t('monitor')));
-  const checkbox = document.createElement('input');
-  checkbox.type = 'checkbox';
-  checkbox.checked = g.monitoring;
-  checkbox.onchange = () => {
-    g.monitoring = checkbox.checked;
-    S.config.monitorByGoal[g.goalId] = checkbox.checked;
-    saveConfig();
-    if (checkbox.checked) pollNow(g); else rearmTimer();
-    renderAllGoals(true);
-  };
-  monitor.appendChild(checkbox);
-  controls.appendChild(monitor);
-  const autoRunToggle = document.createElement('label');
-  autoRunToggle.className = 'detail__toggle';
-  autoRunToggle.appendChild(document.createTextNode(t('autoRunLabel')));
-  const autoRunBox = document.createElement('input');
-  autoRunBox.type = 'checkbox';
-  autoRunBox.checked = g.autoRun;
-  autoRunBox.onchange = () => {
-    setAutoRun(g, autoRunBox.checked);
-    renderAllGoals(true);
-  };
-  autoRunToggle.appendChild(autoRunBox);
-  controls.appendChild(autoRunToggle);
+  // A user-stopped task is parked as a whole: heartbeat and auto-run are
+  // managed by 停止/恢复, so the per-switch toggles hide until resumed.
+  if (!g.userStopped) {
+    const monitor = document.createElement('label');
+    monitor.className = 'detail__toggle';
+    monitor.appendChild(document.createTextNode(t('monitor')));
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = g.monitoring;
+    checkbox.onchange = () => {
+      g.monitoring = checkbox.checked;
+      S.config.monitorByGoal[g.goalId] = checkbox.checked;
+      saveConfig();
+      if (checkbox.checked) pollNow(g); else rearmTimer();
+      renderAllGoals(true);
+    };
+    monitor.appendChild(checkbox);
+    controls.appendChild(monitor);
+    const autoRunToggle = document.createElement('label');
+    autoRunToggle.className = 'detail__toggle';
+    autoRunToggle.appendChild(document.createTextNode(t('autoRunLabel')));
+    const autoRunBox = document.createElement('input');
+    autoRunBox.type = 'checkbox';
+    autoRunBox.checked = g.autoRun;
+    autoRunBox.onchange = () => {
+      setAutoRun(g, autoRunBox.checked);
+      renderAllGoals(true);
+    };
+    autoRunToggle.appendChild(autoRunBox);
+    controls.appendChild(autoRunToggle);
+  }
   const goalDir = goalProjectDir(g.goalId);
   if (goalDir) {
     const dirRow = document.createElement('div');
@@ -1352,12 +1414,28 @@ function renderGoalDetails(g) {
     resume.onclick = () => pollNow(g);
     actions.appendChild(resume);
   }
-  const run = document.createElement('button');
-  run.type = 'button';
-  run.className = g.running ? 'btn btn--danger' : 'btn btn--primary';
-  run.textContent = g.running ? t('cancelRun') : t('runOnce');
-  run.onclick = () => g.running ? cancelGoalRun(g, run) : executeRunOnce(g);
-  actions.appendChild(run);
+  if (g.userStopped) {
+    const resumeTaskBtn = document.createElement('button');
+    resumeTaskBtn.type = 'button';
+    resumeTaskBtn.className = 'btn btn--primary';
+    resumeTaskBtn.textContent = t('resumeTask');
+    resumeTaskBtn.onclick = () => resumeGoalTask(g);
+    actions.appendChild(resumeTaskBtn);
+  } else {
+    const run = document.createElement('button');
+    run.type = 'button';
+    run.className = g.running ? 'btn btn--danger' : 'btn btn--primary';
+    run.textContent = g.running ? t('cancelRun') : t('runOnce');
+    run.onclick = () => g.running ? cancelGoalRun(g, run) : executeRunOnce(g);
+    actions.appendChild(run);
+    const stop = document.createElement('button');
+    stop.type = 'button';
+    stop.className = 'btn btn--danger';
+    stop.textContent = t('stopTask');
+    stop.title = t('stopTaskHint');
+    stop.onclick = () => stopGoalTask(g);
+    actions.appendChild(stop);
+  }
   const raw = document.createElement('button');
   raw.type = 'button';
   raw.className = 'btn';
