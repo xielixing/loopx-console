@@ -410,6 +410,19 @@
       try {
         const response = await runLoopx(projectDir, args, 60000);
         const ok = response.code === 0 && response.payload?.ok !== false;
+        // Plan-level user gates were implicitly approved by the intake
+        // confirmation — complete them immediately so the task auto-runs.
+        if (ok && todo.role === 'user' && response.payload?.todo_id) {
+          const completeArgs = [
+            'todo', 'complete', '--goal-id', goalId,
+            '--todo-id', response.payload.todo_id,
+            '--note', 'approved by task intake confirmation',
+          ];
+          if (todo.taskClass === 'user_gate') completeArgs.push('--decision-outcome', 'approve');
+          try {
+            await runLoopx(projectDir, completeArgs, 60000);
+          } catch (_) {}
+        }
         written.push({
           actionKind: todo.actionKind,
           ok,

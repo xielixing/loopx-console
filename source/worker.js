@@ -598,6 +598,22 @@ async function writePlannedTodos({ argvPrefix, srcDir, projectDir, goalId, agent
     try {
       const response = await runJson(argvPrefix, projectDir, args, { srcDir });
       const ok = response.result.code === 0 && response.payload?.ok !== false;
+      // Plan-level user gates (e.g. "approve this fix plan" with its
+      // write/publish scopes) were implicitly approved when the user
+      // confirmed the intake sheet — complete them immediately so the task
+      // auto-runs instead of parking in a gate that repeats the consent
+      // already given.
+      if (ok && todo.role === 'user' && response.payload?.todo_id) {
+        const completeArgs = [
+          'todo', 'complete', '--goal-id', goalId,
+          '--todo-id', response.payload.todo_id,
+          '--note', 'approved by task intake confirmation',
+        ];
+        if (todo.taskClass === 'user_gate') completeArgs.push('--decision-outcome', 'approve');
+        try {
+          await runJson(argvPrefix, projectDir, completeArgs, { srcDir, timeoutMs: 60000 });
+        } catch (_) {}
+      }
       written.push({
         actionKind: todo.actionKind,
         ok,
