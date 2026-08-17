@@ -2298,10 +2298,10 @@ document.getElementById('task-input').addEventListener('input', () => {
   setTaskFeedback('');
 });
 document.getElementById('task-input').addEventListener('keydown', (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    event.preventDefault();
-    createTaskFromInput();
-  }
+  // Enter submits; Shift+Enter inserts a newline (default browser behavior).
+  if (event.key !== 'Enter' || event.shiftKey) return;
+  event.preventDefault();
+  createTaskFromInput();
 });
 document.getElementById('btn-create-task').addEventListener('click', createTaskFromInput);
 
