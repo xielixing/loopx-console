@@ -45,21 +45,37 @@
     </div>
 
     <main class="layout">
-      <div class="workspace">
-        <section id="goal-list" class="board"></section>
-        <aside id="goal-detail-panel" class="detail-panel" hidden>
-          <header class="detail-panel__header">
-            <div><div id="goal-detail-kicker" class="drawer__kicker"></div><h2 id="goal-detail-title"></h2></div>
-            <button id="btn-close-goal" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="close">
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3l10 10M13 3L3 13"/></svg>
-            </button>
-          </header>
-          <div id="goal-detail-body" class="detail-panel__body"></div>
-        </aside>
-        <div id="detail-empty" class="detail-empty">
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="19" cy="17" r="2.2"/></svg>
-          <span data-i18n="detailEmptyHint">点选卡片查看任务详情与实时日志</span>
-        </div>
+      <div class="workspace" id="workspace-root">
+        <section class="review-zone">
+          <div class="zone-head" id="review-zone-head">
+            <div class="zone-head-row"><span class="dot dot--review"></span><span id="review-zone-title"></span><span class="zone-count" id="review-zone-count">0</span></div>
+            <div class="zone-sub" id="review-zone-sub"></div>
+          </div>
+          <div class="zone-list" id="review-list"></div>
+          <div id="more-area"></div>
+        </section>
+        <section class="run-frame">
+          <nav class="run-rail">
+            <div class="zone-head" id="active-zone-head">
+              <div class="zone-head-row"><span class="dot dot--active"></span><span id="active-zone-title"></span><span class="zone-count" id="active-zone-count">0</span></div>
+              <div class="zone-sub" id="active-zone-sub"></div>
+            </div>
+            <div class="run-rail__list" id="active-list"></div>
+          </nav>
+          <aside id="goal-detail-panel" class="detail-panel" hidden>
+            <header class="detail-panel__header">
+              <div><div id="goal-detail-kicker" class="drawer__kicker"></div><h2 id="goal-detail-title"></h2></div>
+              <button id="btn-close-goal" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="close">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3l10 10M13 3L3 13"/></svg>
+              </button>
+            </header>
+            <div id="goal-detail-body" class="detail-panel__body"></div>
+          </aside>
+          <div id="detail-empty" class="detail-empty">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="19" cy="17" r="2.2"/></svg>
+            <span data-i18n="detailEmptyHint">点选「进行中」的条目查看任务详情与实时日志</span>
+          </div>
+        </section>
       </div>
       <section class="composer" aria-label="Create task">
         <div id="task-feedback" class="composer__feedback" role="status" hidden></div>

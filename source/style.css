@@ -120,22 +120,49 @@ button, input, select { font: inherit; }
 .composer__feedback--ok { color: var(--lx-ok); }
 
 .layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* One big frame ties the card columns to the detail/log area: click a card on
-   the left, its live log streams on the right — visibly the same unit. */
 .workspace {
   flex: 1; min-height: 0; margin: 8px 14px 0;
-  display: flex; overflow: hidden;
-  border: 1px solid var(--lx-border); border-radius: 14px;
-  background: var(--lx-bg);
+  display: flex; gap: 12px; overflow: hidden;
 }
-.board {
-  display: grid; grid-template-columns: repeat(2, 290px);
-  grid-template-rows: minmax(0, 1fr) auto; gap: 12px;
-  flex: 0 0 auto; min-height: 0; padding: 12px;
-  overflow: auto; background: transparent;
+/* 等你处理 stands alone: one narrow decision column in its own frame. */
+.review-zone {
+  flex: 0 0 300px; min-width: 0; display: flex; flex-direction: column;
+  overflow: hidden; border: 1px solid color-mix(in srgb, var(--lx-review) 24%, var(--lx-border));
+  border-radius: 14px; background: var(--lx-bg);
 }
+/* The run unit: the 进行中 directory rail + the selected task's live log,
+   visibly ONE frame. */
+.run-frame {
+  flex: 1; min-width: 0; display: flex; overflow: hidden;
+  border: 1px solid var(--lx-border); border-radius: 14px; background: var(--lx-bg);
+}
+.run-rail {
+  flex: 0 0 250px; min-width: 0; display: flex; flex-direction: column;
+  border-right: 1px solid var(--lx-border); background: transparent;
+}
+.run-rail__list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+.zone-head { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 9px; border-bottom: 1px solid var(--lx-border); font-size: 12px; font-weight: 600; }
+.zone-head-row { display: flex; align-items: center; gap: 7px; }
+.zone-sub { font-size: 10.5px; font-weight: 400; color: var(--lx-text-mute); }
+.zone-count { margin-left: auto; color: var(--lx-text-mute); font: 11px/1 var(--lx-mono); }
+.zone-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.zone-empty { padding: 14px 8px; color: var(--lx-text-mute); font-size: 11.5px; text-align: center; }
+/* Directory rows in the 进行中 rail. */
+.run-item {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 8px 9px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--lx-text);
+  text-align: left; cursor: pointer;
+}
+.run-item:hover { background: var(--lx-hover); }
+.run-item.is-selected { background: color-mix(in srgb, var(--lx-accent) 14%, transparent); }
+.run-item__meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.run-item__id { font: 11px/1.3 var(--lx-mono); color: var(--lx-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-item__text { color: var(--lx-text-mute); font-size: 11px; line-height: 1.4; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.run-item .dot { margin-top: 4px; }
+.run-item--pending { border: 1px dashed var(--lx-border); }
+.run-item--pending .goal__activity-text { flex: 0 0 auto; max-width: 42%; color: var(--lx-ok); font-size: 10px; line-height: 1.35; text-align: right; }
 /* Master-detail: the selected goal's info + live activity stream takes the
-   remaining width beside the two narrow card columns. */
+   remaining width beside the directory rail. */
 .detail-panel {
   flex: 1 1 auto; min-width: 340px; display: flex; flex-direction: column;
   min-height: 0; border-left: 1px solid var(--lx-border);
@@ -153,25 +180,6 @@ button, input, select { font: inherit; }
 .detail-panel__header h2 { margin: 2px 0 0; font: 600 15px/1.35 var(--lx-sans); overflow-wrap: anywhere; }
 .detail-panel__body { flex: 1; min-height: 0; overflow-y: auto; }
 .goal.is-selected { border-color: var(--lx-accent); box-shadow: 0 0 0 1px var(--lx-accent); }
-.col {
-  --col-accent: var(--lx-text-mute);
-  position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
-  overflow: hidden; border: 1px solid color-mix(in srgb, var(--col-accent) 22%, var(--lx-border));
-  border-radius: 12px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--col-accent) 7%, transparent), transparent 56%), var(--lx-surface);
-}
-.col--review { --col-accent: var(--lx-review); }
-.col--active { --col-accent: var(--lx-ok); }
-.col::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, var(--col-accent), transparent 75%);
-}
-.col__head { display: flex; flex-direction: column; gap: 3px; min-height: 58px; padding: 10px 12px 9px; border-bottom: 1px solid color-mix(in srgb, var(--col-accent) 16%, var(--lx-border)); font-size: 12px; font-weight: 600; }
-.col__head-row { display: flex; align-items: center; gap: 7px; }
-.col__sub { font-size: 10.5px; font-weight: 400; color: var(--lx-text-mute); }
-.col__count { margin-left: auto; color: var(--lx-text-mute); font: 11px/1 var(--lx-mono); }
-.col__body { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 0; padding: 10px; overflow-y: auto; }
-.col__empty { padding: 14px 8px; color: var(--lx-text-mute); font-size: 11.5px; text-align: center; }
 .dot--backlog { background: var(--lx-text-mute); }
 .dot--active { background: var(--lx-ok); }
 .dot--review { background: var(--lx-review); }
@@ -186,8 +194,6 @@ button, input, select { font: inherit; }
   box-shadow: 0 1px 2px rgba(0,0,0,.04);
 }
 .goal:hover { border-color: var(--lx-border-strong); background: color-mix(in srgb, var(--lx-surface) 88%, var(--lx-hover)); }
-.goal--pending { cursor: default; border-style: dashed; }
-.goal--pending:hover { border-color: var(--lx-border); background: var(--lx-surface); }
 .goal__head { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .goal__id { min-width: 0; overflow: hidden; color: var(--lx-text-mute); font: 11px/1.25 var(--lx-mono); text-overflow: ellipsis; white-space: nowrap; }
 .goal__arrow { margin-left: auto; color: var(--lx-text-mute); }
@@ -203,9 +209,9 @@ button, input, select { font: inherit; }
 .goal--terminal { min-height: 76px; background: transparent; opacity: .82; }
 .goal--terminal .goal__reason { color: var(--lx-text-soft); font-size: 12px; font-weight: 450; }
 
-/* "More" footer: terminal/stopped/error goals and other-host goals collapse
-   into quiet chips under the three columns; nothing renders when empty. */
-.board-more { display: flex; flex-direction: column; gap: 8px; grid-column: 1 / -1; padding: 4px 0 10px; }
+/* "More" chips at the bottom of the review zone: terminal/stopped/error
+   goals and other-host goals; nothing renders when empty. */
+.board-more { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; padding: 8px 10px 10px; border-top: 1px solid var(--lx-border); }
 .board-more__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .board-more__chip {
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
@@ -215,11 +221,11 @@ button, input, select { font: inherit; }
 .board-more__chip b { color: var(--lx-text-mute); font: 600 11px/1 var(--lx-mono); }
 .board-more__chip:hover, .board-more__chip.is-open { border-color: var(--lx-border-strong); background: var(--lx-hover); color: var(--lx-text); }
 .board-more__panel {
-  display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 8px;
-  padding: 10px; border: 1px solid var(--lx-border); border-radius: 10px;
+  display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto;
+  padding: 8px; border: 1px solid var(--lx-border); border-radius: 10px;
   background: color-mix(in srgb, var(--lx-surface) 30%, var(--lx-bg));
 }
-.board-more__rows { display: flex; flex-direction: column; gap: 6px; grid-column: 1 / -1; }
+.board-more__rows { display: flex; flex-direction: column; gap: 6px; }
 .board-more__hint { margin: 0 0 2px; color: var(--lx-text-mute); font-size: 11px; }
 
 /* other-host rows inside the "more" footer */
@@ -255,8 +261,9 @@ button, input, select { font: inherit; }
   color: var(--lx-text); font-size: 11.5px; line-height: 1.4;
   display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;
 }
-.col--review .col__head { color: var(--lx-review); }
-.col--review .col__count { color: var(--lx-review); font-weight: 700; }
+/* The review zone head keeps its attention color. */
+.review-zone .zone-head { color: var(--lx-review); }
+.review-zone .zone-count { color: var(--lx-review); font-weight: 700; }
 
 .btn--approve { border-color: var(--lx-review); background: var(--lx-review); color: #fff; }
 .btn--approve:hover { background: color-mix(in srgb, var(--lx-review) 82%, black); }

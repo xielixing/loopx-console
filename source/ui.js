@@ -60,7 +60,7 @@ const I18N = {
     groupReview: '等你处理',
     colSubReview: '阻塞 · 需要你批准后继续',
     colSubActive: 'Agent 正在执行',
-    detailEmptyHint: '点选卡片查看任务详情与实时日志',
+    detailEmptyHint: '点选「进行中」的条目查看任务详情与实时日志',
     groupDone: '已完成',
     detailOverview: '当前动作',
     detailStatus: '状态',
@@ -214,7 +214,7 @@ const I18N = {
     groupReview: 'Needs you',
     colSubReview: 'Blocking · continues after your approval',
     colSubActive: 'The agent is working',
-    detailEmptyHint: 'Select a card to see its details and live log',
+    detailEmptyHint: 'Select an entry in "In progress" to see its details and live log',
     groupDone: 'Done',
     detailOverview: 'Current action',
     detailStatus: 'Status',
@@ -1064,29 +1064,49 @@ function setGoalActivityTick(g, text) {
   }
 }
 
-function buildIntakeCard(draft) {
+// Intake draft as a pending directory row in the 进行中 rail; its stage line
+// is patched in place by the taskIntake progress events.
+function buildIntakeRow(draft) {
   const el = document.createElement('div');
-  el.className = 'goal goal--pending';
-  const head = document.createElement('div');
-  head.className = 'goal__head';
+  el.className = 'run-item run-item--pending';
   const dot = document.createElement('span');
   dot.className = 'dot dot--active';
+  const meta = document.createElement('span');
+  meta.className = 'run-item__meta';
   const id = document.createElement('span');
-  id.className = 'goal__id';
+  id.className = 'run-item__id';
   id.textContent = t('taskPendingLabel');
-  head.append(dot, id);
-  const narration = document.createElement('div');
-  narration.className = 'goal__reason';
-  narration.textContent = draft.objective;
-  const activity = document.createElement('div');
-  activity.className = 'goal__activity goal__activity--live';
-  const pulse = document.createElement('span');
-  pulse.className = 'goal__activity-dot';
   const text = document.createElement('span');
-  text.className = 'goal__activity-text';
-  text.textContent = draft.stage;
-  activity.append(pulse, text);
-  el.append(head, narration, activity);
+  text.className = 'run-item__text';
+  text.textContent = draft.objective;
+  meta.append(id, text);
+  const stage = document.createElement('span');
+  stage.className = 'goal__activity-text';
+  stage.textContent = draft.stage;
+  el.append(dot, meta, stage);
+  return el;
+}
+
+// The 进行中 rail is a directory: one compact row per running goal. Clicking
+// a row selects it and streams its log into the panel beside the rail.
+function buildRunItem(g) {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'run-item' + (S.activeGoalId === g.goalId ? ' is-selected' : '');
+  el.setAttribute('aria-label', g.goalId);
+  el.onclick = () => openGoalDetails(g);
+  const dot = document.createElement('span');
+  dot.className = 'dot dot--active';
+  const meta = document.createElement('span');
+  meta.className = 'run-item__meta';
+  const id = document.createElement('span');
+  id.className = 'run-item__id';
+  id.textContent = g.goalId;
+  const text = document.createElement('span');
+  text.className = 'run-item__text';
+  text.textContent = goalNarration(g);
+  meta.append(id, text);
+  el.append(dot, meta);
   return el;
 }
 
@@ -1576,9 +1596,9 @@ function requestRender(force = false) {
 }
 
 function renderAllGoals(force = false) {
-  const list = document.getElementById('goal-list');
+  const workspace = document.getElementById('workspace-root');
   const active = document.activeElement;
-  if (!force && active && list.contains(active)
+  if (!force && active && workspace.contains(active)
       && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) {
     // Never yank the DOM out from under the user's cursor; re-render on blur.
     S.renderPending = true;
@@ -1591,66 +1611,58 @@ function renderAllGoals(force = false) {
   }
   lastFingerprint = fp;
 
-  for (const child of [...list.children]) child.remove();
   // v3.2: the board shows only goals this console owns; other-host goals are
   // listed separately and stay unmonitored until adopted.
   const owned = [];
   const other = [];
   for (const g of S.goals.values()) (isOwnedGoal(g.goalId) ? owned : other).push(g);
-  // The board is always visible — empty columns are part of the default view;
-  // the composer sits at the bottom as its command bar.
   const buckets = new Map([...PRIMARY_GROUPS, 'backlog', ...ARCHIVE_GROUPS].map((k) => [k, []]));
   for (const g of owned) buckets.get(goalGroup(g)).push(g);
-  for (const key of PRIMARY_GROUPS) {
-    const goals = buckets.get(key);
-    const pendingCount = key === 'active' && S.intakeDraft ? 1 : 0;
-    const col = document.createElement('div');
-    col.className = `col col--${key}`;
 
-    const head = document.createElement('div');
-    head.className = 'col__head';
-    const row = document.createElement('div');
-    row.className = 'col__head-row';
-    const dot = document.createElement('span');
-    dot.className = `dot dot--${key}`;
-    row.appendChild(dot);
-    const title = document.createElement('span');
-    title.className = 'col__title';
-    title.textContent = t(GROUP_I18N_KEY[key]);
-    row.appendChild(title);
-    const count = document.createElement('span');
-    count.className = 'col__count';
-    count.textContent = String(goals.length + pendingCount);
-    row.appendChild(count);
-    head.appendChild(row);
-    const sub = document.createElement('div');
-    sub.className = 'col__sub';
-    sub.textContent = t(GROUP_SUB_KEY[key]);
-    head.appendChild(sub);
-    col.appendChild(head);
-
-    const body = document.createElement('div');
-    body.className = 'col__body';
-    if (key === 'active' && S.intakeDraft) body.appendChild(buildIntakeCard(S.intakeDraft));
-    if (goals.length === 0 && pendingCount === 0) {
-      const none = document.createElement('div');
-      none.className = 'col__empty';
-      none.textContent = t('colEmpty');
-      body.appendChild(none);
-    }
-    for (const g of goals) body.appendChild(buildGoalCard(g));
-    col.appendChild(body);
-    list.appendChild(col);
+  // ── 等你处理: a standalone decision column ────────────────
+  const reviewGoals = buckets.get('review');
+  document.getElementById('review-zone-title').textContent = t(GROUP_I18N_KEY.review);
+  document.getElementById('review-zone-count').textContent = String(reviewGoals.length);
+  document.getElementById('review-zone-sub').textContent = t(GROUP_SUB_KEY.review);
+  const reviewList = document.getElementById('review-list');
+  reviewList.replaceChildren();
+  if (reviewGoals.length === 0) {
+    const none = document.createElement('div');
+    none.className = 'zone-empty';
+    none.textContent = t('colEmpty');
+    reviewList.appendChild(none);
   }
-  // Queued/terminal/stopped/error goals and other-host goals share one quiet
-  // footer of chips — rendered only when something actually hides behind it.
+  for (const g of reviewGoals) reviewList.appendChild(buildGoalCard(g));
+
+  // ── 进行中 + log panel: ONE unit; the rail is its directory ──
+  const activeGoals = buckets.get('active');
+  const pendingCount = S.intakeDraft ? 1 : 0;
+  document.getElementById('active-zone-title').textContent = t(GROUP_I18N_KEY.active);
+  document.getElementById('active-zone-count').textContent = String(activeGoals.length + pendingCount);
+  document.getElementById('active-zone-sub').textContent = t(GROUP_SUB_KEY.active);
+  const activeList = document.getElementById('active-list');
+  activeList.replaceChildren();
+  if (S.intakeDraft) activeList.appendChild(buildIntakeRow(S.intakeDraft));
+  if (activeGoals.length === 0 && pendingCount === 0) {
+    const none = document.createElement('div');
+    none.className = 'zone-empty';
+    none.textContent = t('colEmpty');
+    activeList.appendChild(none);
+  }
+  for (const g of activeGoals) activeList.appendChild(buildRunItem(g));
+
+  // Terminal/stopped/error goals and other-host goals hide behind quiet chips
+  // at the bottom of the review zone.
   const moreGroups = [];
   for (const key of ARCHIVE_GROUPS) {
     if (buckets.get(key).length > 0) moreGroups.push({ key, goals: buckets.get(key) });
   }
   if (other.length > 0) moreGroups.push({ key: 'other', goals: other });
-  if (moreGroups.length > 0) list.appendChild(buildMoreFooter(moreGroups));
-  // Master-detail: the selected goal's panel rides beside the columns.
+  const moreArea = document.getElementById('more-area');
+  moreArea.replaceChildren();
+  if (moreGroups.length > 0) moreArea.appendChild(buildMoreFooter(moreGroups));
+
+  // Master-detail: the selected goal's panel rides inside the run unit.
   const panel = document.getElementById('goal-detail-panel');
   const emptyHint = document.getElementById('detail-empty');
   if (S.activeGoalId) {
@@ -2357,9 +2369,10 @@ app.on('worker:taskIntake:progress', (d) => {
   };
   S.intakeDraft.stage = stages[d.stage] || t('taskCreating');
   setTaskFeedback(S.intakeDraft.stage);
-  // Patch the pending card's stage line in place — a full board rebuild per
-  // progress event (clone percent streams) is exactly the flicker we remove.
-  const live = document.querySelector('#goal-list .goal--pending .goal__activity-text');
+  // Patch the pending rail row's stage line in place — a full board rebuild
+  // per progress event (clone percent streams) is exactly the flicker we
+  // remove.
+  const live = document.querySelector('.run-item--pending .goal__activity-text');
   if (live) live.textContent = S.intakeDraft.stage;
 });
 
