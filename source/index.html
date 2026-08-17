@@ -16,11 +16,6 @@
         </div>
         <h1 class="brand__title">LoopX</h1>
       </div>
-      <button id="btn-project" class="project-switcher" type="button" data-i18n-title="projectBtnHint">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 4a1 1 0 011-1h3l1.5 2H13a1 1 0 011 1v6a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/></svg>
-        <span id="project-label" data-i18n="globalRegistry">全局 Registry</span>
-        <svg class="project-switcher__chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
-      </button>
       <div class="topbar__spacer"></div>
       <div class="runtime-status">
         <span id="hb-presence" class="presence presence--idle"><span class="presence__dot"></span><span id="hb-presence-text"></span></span>
@@ -92,9 +87,13 @@
       <section class="drawer__shell">
         <header class="drawer__header">
           <div><div class="drawer__kicker">LoopX</div><h2 data-i18n="logTitle">心跳与执行日志</h2></div>
-          <button id="btn-close-logs" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="close">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3l10 10M13 3L3 13"/></svg>
-          </button>
+          <div class="log-panel__filters">
+            <button type="button" id="log-filter-all" class="btn btn--small is-active" data-i18n="logFilterAll">全部</button>
+            <button type="button" id="log-filter-errors" class="btn btn--small" data-i18n="logFilterErrors">仅错误</button>
+            <button id="btn-close-logs" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="close">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3l10 10M13 3L3 13"/></svg>
+            </button>
+          </div>
         </header>
         <div class="log-panel__body" id="log-body"></div>
       </section>
@@ -107,6 +106,14 @@
         <label class="field"><span data-i18n="setPrefix">loopx 调用命令（JSON 数组，留空自动探测）</span><input id="set-prefix" type="text" spellcheck="false" placeholder='["loopx"]' /></label>
         <label class="field"><span data-i18n="setSrcDir">loopx 源码目录</span><input id="set-srcdir" type="text" spellcheck="false" placeholder="C:\path\to\loopx" /></label>
         <label class="field"><span data-i18n="setModel">执行模型（长程任务的默认值；每个任务可在详情里单独覆盖）</span><select id="set-model"></select></label>
+        <div class="field">
+          <span data-i18n="settingsProjectDir">本地项目目录（可选 · 高级：修复你自己的 checkout，而不是自动克隆）</span>
+          <div class="field__row">
+            <span id="set-project-value" class="field__value" data-i18n="projectDirNone">未设置（默认自动克隆到小应用数据目录）</span>
+            <button type="button" id="btn-pick-project" class="btn btn--small" data-i18n="chooseProjectDir">选择</button>
+            <button type="button" id="btn-clear-project" class="btn btn--small" data-i18n="clearProjectDir">清除</button>
+          </div>
+        </div>
         <div class="dlg__actions"><button type="button" value="cancel" class="btn dlg-cancel" data-i18n="cancel">取消</button><button value="save" id="btn-save-settings" class="btn btn--primary" data-i18n="save">保存</button></div>
       </form>
     </dialog>

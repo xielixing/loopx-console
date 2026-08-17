@@ -10,14 +10,14 @@ const app = window.app;
 const I18N = {
   'zh-CN': {
     title: 'LoopX 控制台',
-    globalRegistry: '全局 Registry',
     refresh: '刷新目标列表',
     settings: '设置',
     retry: '重试',
     notFoundTitle: '未检测到 loopx CLI',
     notFoundHint: '请先安装 loopx（对源码 checkout 执行 pip install -e），或在设置中指定调用命令 / 源码目录，然后点击重试。',
-    projectBtnHint: '选择任务对应的本地仓库目录（新任务会在这里初始化 .loopx 状态）；不选则读全局 Registry（~/.codex/loopx/registry.global.json）',
     logTitle: '心跳与执行日志',
+    logFilterAll: '全部',
+    logFilterErrors: '仅错误',
     monitor: '监控',
     agent: 'Agent',
     agentFree: '手动输入 agent id…',
@@ -149,6 +149,10 @@ const I18N = {
     modelFollowGlobal: '跟随全局默认',
     detailModel: '执行模型',
     modelChanged: (m) => `执行模型已切换为 ${m}`,
+    settingsProjectDir: '本地项目目录（可选 · 高级：修复你自己的 checkout，而不是自动克隆）',
+    projectDirNone: '未设置（默认自动克隆到小应用数据目录）',
+    chooseProjectDir: '选择',
+    clearProjectDir: '清除',
     taskNeedAgent: '请先在设置中配置新任务默认 Agent。',
     taskCreated: (id) => `任务 ${id} 已创建`,
     taskRepoMismatch: (expected, actual) => `链接指向 ${expected}，当前项目是 ${actual}。请切换到正确的本地 checkout。`,
@@ -159,14 +163,14 @@ const I18N = {
   },
   'en-US': {
     title: 'LoopX Console',
-    globalRegistry: 'Global registry',
     refresh: 'Refresh goals',
     settings: 'Settings',
     retry: 'Retry',
     notFoundTitle: 'loopx CLI not found',
     notFoundHint: 'Install loopx first (pip install -e on a source checkout), or set the invocation command / source directory in Settings, then retry.',
-    projectBtnHint: 'Pick the local repository directory for your tasks (new tasks initialize .loopx state there); without one, the console reads the global registry (~/.codex/loopx/registry.global.json)',
     logTitle: 'Heartbeat & execution log',
+    logFilterAll: 'All',
+    logFilterErrors: 'Errors only',
     monitor: 'Monitor',
     agent: 'Agent',
     agentFree: 'Type agent id…',
@@ -298,6 +302,10 @@ const I18N = {
     modelFollowGlobal: 'Follow global default',
     detailModel: 'Execution model',
     modelChanged: (m) => `Execution model switched to ${m}`,
+    settingsProjectDir: 'Local project directory (optional · advanced: fix your own checkout instead of auto-cloning)',
+    projectDirNone: 'Not set (repositories are auto-cloned into the MiniApp data directory)',
+    chooseProjectDir: 'Choose',
+    clearProjectDir: 'Clear',
     taskNeedAgent: 'Configure the default Agent for new tasks in Settings first.',
     taskCreated: (id) => `Task ${id} created`,
     taskRepoMismatch: (expected, actual) => `The link targets ${expected}, but the current project is ${actual}. Select the matching local checkout.`,
@@ -466,24 +474,42 @@ async function dbgUi(tag, detail) {
   }
 }
 
+// ── logging ───────────────────────────────────────────────
+// The global log is a diagnostic surface, not a chat feed: the toolbar badge
+// counts only errors, and the drawer defaults to an errors-only view so steady
+// heartbeat chatter never greets the user as a growing number.
+let logFilter = 'errors';
+
+function renderLogBody() {
+  const body = document.getElementById('log-body');
+  body.replaceChildren();
+  const lines = logFilter === 'errors' ? S.logs.filter((entry) => entry.isErr) : S.logs;
+  for (const entry of lines) {
+    const div = document.createElement('div');
+    div.className = 'log-line' + (entry.isErr ? ' log-line--err' : '');
+    const ts = document.createElement('span');
+    ts.className = 't';
+    ts.textContent = entry.time;
+    div.appendChild(ts);
+    div.appendChild(document.createTextNode(entry.msg));
+    body.appendChild(div);
+  }
+  body.scrollTop = body.scrollHeight;
+}
+
 function log(msg, isErr = false) {
   const time = new Date().toTimeString().slice(0, 8);
   S.logs.push({ time, msg, isErr });
   if (S.logs.length > 500) S.logs.splice(0, S.logs.length - 500);
-  const body = document.getElementById('log-body');
-  const div = document.createElement('div');
-  div.className = 'log-line' + (isErr ? ' log-line--err' : '');
-  const ts = document.createElement('span');
-  ts.className = 't';
-  ts.textContent = time;
-  div.appendChild(ts);
-  div.appendChild(document.createTextNode(msg));
-  body.appendChild(div);
-  while (body.children.length > 500) body.removeChild(body.firstChild);
-  body.scrollTop = body.scrollHeight;
+  const errors = S.logs.filter((entry) => entry.isErr).length;
   const count = document.getElementById('log-count');
-  count.textContent = String(S.logs.length);
-  count.hidden = S.logs.length === 0;
+  if (errors > 0) {
+    count.textContent = String(errors);
+    count.hidden = false;
+  } else {
+    count.hidden = true;
+  }
+  renderLogBody();
 }
 
 // ── config persistence ────────────────────────────────────
@@ -597,9 +623,9 @@ async function pollGoal(g) {
       if (limit != null && g.unchangedCount >= limit && sched.afterLimit === 'stop_tick_loop') {
         g.stopped = true;
         log(`[${g.goalId}] unchanged ×${g.unchangedCount} ≥ limit → tick loop stopped`);
-      } else {
-        log(`[${g.goalId}] unchanged ×${g.unchangedCount} → backoff to ${g.intervalMin.toFixed(1)}m`);
       }
+      // Steady-state backoff steps are visible on the card's interval math
+      // (intervalMath); logging every tick would flood the diagnostic log.
     }
     g.lastDecisionKey = key;
     g.intervalMin = Math.min(Math.max(g.intervalMin, recommended), maxIv);
@@ -1774,27 +1800,42 @@ async function refreshGoals() {
 }
 
 // ── toolbar / settings wiring ─────────────────────────────
-function updateProjectLabel() {
-  const label = document.getElementById('project-label');
-  label.textContent = S.config.projectDir || t('globalRegistry');
-  label.removeAttribute('data-i18n');
-  if (!S.config.projectDir) label.setAttribute('data-i18n', 'globalRegistry');
+function updateProjectValue() {
+  const el = document.getElementById('set-project-value');
+  if (S.config.projectDir) {
+    el.textContent = S.config.projectDir;
+    el.removeAttribute('data-i18n');
+  } else {
+    el.textContent = '';
+    el.setAttribute('data-i18n', 'projectDirNone');
+    applyI18n();
+  }
 }
 
-document.getElementById('btn-project').addEventListener('click', async () => {
+async function pickProjectDir() {
   try {
     const picked = await app.dialog.open({ directory: true });
     const dir = Array.isArray(picked) ? picked[0] : picked;
     if (!dir) return;
     S.config.projectDir = dir;
     await saveConfig();
-    updateProjectLabel();
+    updateProjectValue();
     S.goals.clear();
     renderAllGoals(true);
     await refreshGoals();
   } catch (err) {
     log(`dialog error: ${err.message || err}`, true);
   }
+}
+
+document.getElementById('btn-pick-project').addEventListener('click', pickProjectDir);
+document.getElementById('btn-clear-project').addEventListener('click', async () => {
+  S.config.projectDir = null;
+  await saveConfig();
+  updateProjectValue();
+  S.goals.clear();
+  renderAllGoals(true);
+  await refreshGoals();
 });
 
 document.getElementById('btn-refresh').addEventListener('click', refreshGoals);
@@ -1805,6 +1846,7 @@ document.getElementById('btn-retry-detect').addEventListener('click', async () =
 document.getElementById('btn-settings').addEventListener('click', () => {
   document.getElementById('set-prefix').value = S.config.argvPrefix ? JSON.stringify(S.config.argvPrefix) : '';
   document.getElementById('set-srcdir').value = S.config.srcDir || '';
+  updateProjectValue();
   const dlg = document.getElementById('dlg-settings');
   dlg.returnValue = 'cancel'; // avoid stale 'save' from a previous open
   dlg.onclose = async () => {
@@ -1829,8 +1871,17 @@ document.getElementById('btn-settings').addEventListener('click', () => {
 });
 
 document.getElementById('btn-logs').addEventListener('click', () => {
+  renderLogBody();
   document.getElementById('dlg-logs').showModal();
 });
+function setLogFilter(filter) {
+  logFilter = filter;
+  document.getElementById('log-filter-all').classList.toggle('is-active', filter === 'all');
+  document.getElementById('log-filter-errors').classList.toggle('is-active', filter === 'errors');
+  renderLogBody();
+}
+document.getElementById('log-filter-all').addEventListener('click', () => setLogFilter('all'));
+document.getElementById('log-filter-errors').addEventListener('click', () => setLogFilter('errors'));
 document.getElementById('btn-close-logs').addEventListener('click', () => {
   document.getElementById('dlg-logs').close();
 });
