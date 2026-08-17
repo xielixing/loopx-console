@@ -188,6 +188,17 @@
       </form>
     </dialog>
 
+    <dialog id="dlg-stop" class="dlg">
+      <form method="dialog" class="dlg__form">
+        <h2 id="stop-title"></h2>
+        <p id="stop-text" class="dlg__note"></p>
+        <div class="dlg__actions">
+          <button type="button" value="cancel" class="btn dlg-cancel" data-i18n="cancel">取消</button>
+          <button value="confirm" class="btn btn--danger" data-i18n="confirmStop">确认停止</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="dlg-raw" class="dlg dlg--wide">
       <form method="dialog" class="dlg__form"><h2 id="raw-title">JSON</h2><pre id="raw-body" class="run-argv raw-body" tabindex="0"></pre><div class="dlg__actions"><button type="button" id="btn-copy-raw" class="btn" data-i18n="copy">复制</button><button value="close" class="btn btn--primary" data-i18n="close">关闭</button></div></form>
     </dialog>

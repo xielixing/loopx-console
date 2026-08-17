@@ -48,6 +48,10 @@ const I18N = {
     resumeTask: '恢复任务',
     taskStopped: (id) => `任务 ${id} 已停止：心跳与自动执行已关闭`,
     taskResumed: (id) => `任务 ${id} 已恢复：心跳与自动执行已重新开启`,
+    stopConfirmTitle: '停止这个任务？',
+    stopConfirmText: (id) => `将取消「${id}」正在进行的运行，并关闭它的心跳监控与自动执行。任务会移入「已停表」，随时可以恢复。`,
+    confirmStop: '确认停止',
+    stoppedState: '已停止 · 心跳与自动执行已关闭',
     nextPoll: (t) => `下次轮询 ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `间隔 ${iv}m（基准 ${base}m ×${mult}^${n}，上限 ${cap}m）`,
     intervalPlain: (iv) => `间隔 ${iv}m`,
@@ -203,6 +207,10 @@ const I18N = {
     resumeTask: 'Resume task',
     taskStopped: (id) => `Task ${id} stopped: heartbeat and auto-run disabled`,
     taskResumed: (id) => `Task ${id} resumed: heartbeat and auto-run re-enabled`,
+    stopConfirmTitle: 'Stop this task?',
+    stopConfirmText: (id) => `This cancels the running turn of "${id}", switches off its heartbeat monitoring and auto-run. The task moves to "Stopped" and can be resumed anytime.`,
+    confirmStop: 'Stop it',
+    stoppedState: 'Stopped · heartbeat and auto-run are off',
     nextPoll: (t) => `next poll in ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `every ${iv}m (base ${base}m ×${mult}^${n}, cap ${cap}m)`,
     intervalPlain: (iv) => `every ${iv}m`,
@@ -1397,11 +1405,17 @@ function renderGoalDetails(g) {
   statusLabel.textContent = t('detailStatus');
   const grid = document.createElement('div');
   grid.className = 'detail__grid';
-  const waiting = g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn;
-  appendDetailRow(grid, t('detailStatus'), waiting
-    ? `${g.last?.state ?? g.state ?? '—'} · ${waitingLabel(waiting)}`
-    : (g.last?.state ?? g.state ?? '—'));
-  appendDetailRow(grid, t('detailSchedule'), goalMetaText(g), g.errorCount ? 'countdown--err' : '', g.goalId);
+  if (g.userStopped) {
+    // A stopped task explains itself: one clear row instead of scheduler
+    // noise (its heartbeat and schedule are off by definition).
+    appendDetailRow(grid, t('detailStatus'), t('stoppedState'));
+  } else {
+    const waiting = g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn;
+    appendDetailRow(grid, t('detailStatus'), waiting
+      ? `${g.last?.state ?? g.state ?? '—'} · ${waitingLabel(waiting)}`
+      : (g.last?.state ?? g.state ?? '—'));
+    appendDetailRow(grid, t('detailSchedule'), goalMetaText(g), g.errorCount ? 'countdown--err' : '', g.goalId);
+  }
   status.append(statusLabel, grid);
   body.appendChild(status);
 
@@ -1558,7 +1572,7 @@ function renderGoalDetails(g) {
     stop.className = 'btn btn--danger';
     stop.textContent = t('stopTask');
     stop.title = t('stopTaskHint');
-    stop.onclick = () => stopGoalTask(g);
+    stop.onclick = () => openStopConfirm(g);
     actions.appendChild(stop);
   }
   body.appendChild(actions);
@@ -1575,6 +1589,20 @@ function openApproveDialog(g, todo) {
   dlg.onclose = () => {
     if (dlg.returnValue !== 'approve') return;
     approveTodo(g, todo, noteInput.value.trim(), null);
+  };
+  dlg.showModal();
+}
+
+// Stopping is a deliberate, whole-task action: explain what it does before
+// doing it, so the task never "vanishes" as a surprise.
+function openStopConfirm(g) {
+  const dlg = document.getElementById('dlg-stop');
+  document.getElementById('stop-title').textContent = t('stopConfirmTitle');
+  document.getElementById('stop-text').textContent = t('stopConfirmText', g.goalId);
+  dlg.returnValue = 'cancel';
+  dlg.onclose = () => {
+    if (dlg.returnValue !== 'confirm') return;
+    stopGoalTask(g);
   };
   dlg.showModal();
 }
