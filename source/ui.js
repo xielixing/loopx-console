@@ -90,9 +90,14 @@ const I18N = {
     detailStatus: '状态',
     detailControls: '执行设置',
     detailSchedule: '下次轮询',
-    taskPlaceholder: '粘贴 GitHub Issue / 仓库首页 / Issues 列表链接，可附加修复要求',
+    taskPlaceholder: '粘贴 GitHub Issue / 仓库 / Issues 列表链接，可附加修复要求；任务运行时可直接输入文字向 Agent 插话',
     taskGoalUnsupported: '请粘贴 GitHub Issue、PR、仓库首页或 Issues 列表链接（自由目标暂未开放）',
     taskUnsupportedPath: (u) => `不支持的 GitHub 链接：${u}。请粘贴 Issue、PR、仓库首页或 Issues 列表链接`,
+    guidanceNoRunning: '没有正在运行的任务。粘贴 Issue 链接创建新任务，或等任务开始运行后再输入指令。',
+    guidancePickOne: '有多个任务正在运行：请先在「进行中」点选目标任务，再发送指令。',
+    guidanceSending: '正在发送指令…',
+    guidanceSent: (id) => `指令已发送给任务 ${id}，Agent 将在下一步读取`,
+    guidanceLine: (t) => `你：${t}`,
     taskCreate: '创建任务',
     taskCreating: '正在创建任务…',
     taskResolving: '正在识别任务类型…',
@@ -249,9 +254,14 @@ const I18N = {
     detailStatus: 'Status',
     detailControls: 'Execution settings',
     detailSchedule: 'Next poll',
-    taskPlaceholder: 'Paste a GitHub issue / repository home / issues-list link, optionally with fix instructions',
+    taskPlaceholder: 'Paste a GitHub issue / repository / issues-list link, optionally with fix instructions; while a task runs, type free text to guide the agent',
     taskGoalUnsupported: 'Paste a GitHub issue, pull request, repository home, or issues-list link (free-form goals are not open yet)',
     taskUnsupportedPath: (u) => `Unsupported GitHub link: ${u}. Paste an issue, a pull request, the repository home, or its issues list.`,
+    guidanceNoRunning: 'No task is running. Paste an issue link to create one, or wait until a task runs to send instructions.',
+    guidancePickOne: 'Several tasks are running: select the target in "In progress" first, then send the instruction.',
+    guidanceSending: 'Sending instruction…',
+    guidanceSent: (id) => `Instruction sent to task ${id} — the agent reads it on its next step`,
+    guidanceLine: (t) => `You: ${t}`,
     taskCreate: 'Create task',
     taskCreating: 'Creating task…',
     taskResolving: 'Detecting task type…',
@@ -2109,6 +2119,7 @@ async function refreshGoals() {
       projectDirs: projectRegistryDirs(),
     });
     const fresh = new Set();
+    let bindingChanged = false;
     for (const info of res.goals || []) {
       fresh.add(info.goalId);
       const existing = S.goals.get(info.goalId);
@@ -2120,10 +2131,18 @@ async function refreshGoals() {
       } else {
         S.goals.set(info.goalId, newGoalState(info.goalId, info));
       }
+      // listGoals reports which project directory each goal lives in (clone
+      // cache discovery after a fresh import): bind it so polls/turns know
+      // the checkout without a re-clone.
+      if (info.projectDir && S.config.projectByGoal[info.goalId] !== info.projectDir) {
+        S.config.projectByGoal[info.goalId] = info.projectDir;
+        bindingChanged = true;
+      }
     }
     for (const goalId of [...S.goals.keys()]) {
       if (!fresh.has(goalId)) S.goals.delete(goalId);
     }
+    if (bindingChanged) await saveConfig();
     requestRender(true);
     for (const g of S.goals.values()) {
       if (g.monitoring && g.nextDueAt === 0) pollGoal(g);
@@ -2585,12 +2604,23 @@ async function createTaskFromInput() {
   const objective = input.value.trim();
   if (!objective) { input.focus(); return; }
   dbgUi('createTask:start', `text=${objective.slice(0, 120)}`);
-  // Issue-fix is the one polished scenario; free-form goals wait until they
-  // can bind to specific loopx capabilities.
+  // Issue-fix is the one polished creation scenario; free text is NOT a
+  // goal type — while a task is running, it becomes mid-task guidance.
   if (!taskInputKind(objective)) {
     const bad = firstUnsupportedGithubUrl(objective);
-    dbgUi('createTask:unsupported', bad || 'no-supported-link');
-    setTaskFeedback(bad ? t('taskUnsupportedPath', bad) : t('taskGoalUnsupported'), 'error');
+    if (bad) {
+      dbgUi('createTask:unsupported', bad);
+      setTaskFeedback(t('taskUnsupportedPath', bad), 'error');
+      return;
+    }
+    const target = guidanceTargetGoal();
+    if (!target) {
+      const runningCount = [...S.goals.values()].filter((g) => g.running).length;
+      dbgUi('createTask:guidanceRejected', `running=${runningCount}`);
+      setTaskFeedback(runningCount > 1 ? t('guidancePickOne') : t('guidanceNoRunning'), 'error');
+      return;
+    }
+    startGuidance(target, objective);
     return;
   }
   if (!resolveDefaultAgent()) {
@@ -2672,6 +2702,48 @@ async function createTaskFromInput() {
     return;
   }
   openIntakeSheet(resolved, objective);
+}
+
+// Free text targets a RUNNING task as guidance. Prefer the selected goal,
+// otherwise a single running goal; multiple running goals need a pick first.
+function guidanceTargetGoal() {
+  if (S.activeGoalId) {
+    const selected = S.goals.get(S.activeGoalId);
+    if (selected && selected.running) return selected;
+  }
+  const running = [...S.goals.values()].filter((g) => g.running);
+  return running.length === 1 ? running[0] : null;
+}
+
+async function startGuidance(g, text) {
+  const input = document.getElementById('task-input');
+  setComposerBusy(true, t('guidanceSending'));
+  dbgUi('guidance:start', `goal=${g.goalId}`);
+  try {
+    const res = await app.call('loopx.guideGoal', {
+      argvPrefix: S.config.argvPrefix,
+      srcDir: S.config.srcDir || null,
+      projectDir: goalProjectDir(g.goalId),
+      goalId: g.goalId,
+      agentId: g.agentId || null,
+      text,
+    });
+    if (!res.ok) throw new Error(res.error || 'guidance failed');
+    input.value = '';
+    updateTaskKind();
+    setComposerBusy(false, '');
+    setTaskFeedback(t('guidanceSent', g.goalId), 'ok');
+    recordGoalActivity(g, t('guidanceLine', text), false, 'agent');
+    log(`[${g.goalId}] guidance sent (${text.length} chars)`);
+    dbgUi('guidance:done', `goal=${g.goalId} todoId=${res.todoId || ''}`);
+    pollNow(g, { force: true }); // fresh decision; auto-run picks the message up
+  } catch (err) {
+    const message = String(err && err.message || err);
+    dbgUi('guidance:error', message);
+    setComposerBusy(false, '');
+    setTaskFeedback(message, 'error');
+    log(`guidance error: ${message}`, true);
+  }
 }
 
 document.getElementById('task-input').addEventListener('input', () => {

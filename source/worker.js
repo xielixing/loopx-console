@@ -213,9 +213,18 @@ function quotaScanRoot() {
 // When no local checkout is selected, the target repository is cloned into the
 // MiniApp's own data directory and the goal binds to that clone. Progress is
 // streamed through the taskIntake event channel (stage 'clone').
+//
+// The clone cache lives under the USER's stable .bitfun directory, NOT the
+// per-instance appdata: deleting/re-importing the MiniApp would otherwise
+// wipe every clone and force a fresh network clone. A stable cache also lets
+// a fresh import rediscover the repos and their per-project registries.
+function cloneCacheRoot() {
+  return path.join(os.homedir(), '.bitfun', 'loopx-console', 'repos');
+}
+
 function cloneTargetDir(repo) {
   const safe = repo.replace(/[^A-Za-z0-9._-]/g, '-');
-  return path.join(process.cwd(), 'repos', safe);
+  return path.join(cloneCacheRoot(), safe);
 }
 
 function repoExistsOnGithub(repo) {
@@ -700,6 +709,36 @@ module.exports = {
     };
   },
 
+  // Mid-task human intervention: a free-text message from the user is written
+  // as a user-lane todo bound to the goal's agent lane (task-class
+  // user_action — NOT user_gate: this is a message, not a blocking decision).
+  // loopx delivers it as the "post-response continuation" for that lane, so
+  // the agent reads it on its next turn.
+  async 'loopx.guideGoal'({
+    argvPrefix = null, srcDir = null, projectDir = null,
+    goalId, agentId = null, text,
+  } = {}) {
+    if (!goalId) throw new Error('loopx.guideGoal: goalId is required');
+    const message = String(text || '').trim();
+    if (!message) throw new Error('loopx.guideGoal: text is required');
+    if (message.length > 2000) throw new Error('loopx.guideGoal: text is too long (max 2000 characters)');
+    dbgWorker('guideGoal:start', `goalId=${goalId} agentId=${agentId || ''} text=${message.slice(0, 80)}`);
+    const args = [
+      'todo', 'add', '--goal-id', goalId,
+      '--role', 'user', '--task-class', 'user_action', '--text', message,
+    ];
+    if (agentId) args.push('--bound-agent', agentId);
+    const { result, payload } = await runJson(argvPrefix, projectDir, args, { srcDir, timeoutMs: 60000 });
+    const ok = result.code === 0 && payload?.ok !== false;
+    dbgWorker('guideGoal:done', `ok=${ok}`);
+    return {
+      ok,
+      goalId,
+      todoId: payload?.todo_id ?? null,
+      error: ok ? null : (payload?.error || result.stderr.slice(0, 300) || 'todo add failed'),
+    };
+  },
+
   // "Paste an issue URL" glue: preview via `issue-fix workflow-plan
   // --fetch-metadata`, then (execute=true) materialize the ordered todo
   // preview into a goal with plain `loopx todo add` calls. Uses only
@@ -1128,10 +1167,22 @@ module.exports = {
 
   async 'loopx.listGoals'({ argvPrefix = null, projectDir = null, projectDirs = null } = {}) {
     // Direction C: goals may live in several registries — the user's global
-    // registry and one per cloned/selected project directory. Query each and
-    // merge by goalId. With no project registries, loopx's global registry is
-    // used implicitly (no --registry flag).
-    const dirs = [projectDir, ...(Array.isArray(projectDirs) ? projectDirs : [])]
+    // registry, one per cloned/selected project directory, and (since the
+    // clone cache is stable across MiniApp re-imports) any repo in the cache
+    // that carries its own .loopx registry. Query each and merge by goalId.
+    const cacheRepos = [];
+    try {
+      const root = cloneCacheRoot();
+      if (fs.existsSync(root)) {
+        for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          if (fs.existsSync(path.join(root, entry.name, '.loopx', 'registry.json'))) {
+            cacheRepos.push(path.join(root, entry.name));
+          }
+        }
+      }
+    } catch (_) {}
+    const dirs = [projectDir, ...(Array.isArray(projectDirs) ? projectDirs : []), ...cacheRepos]
       .filter((dir) => typeof dir === 'string' && dir);
     const uniqueDirs = [...new Set(dirs)];
     const registryPaths = uniqueDirs
@@ -1141,6 +1192,7 @@ module.exports = {
 
     const agentsByGoal = {};
     const objectivesByGoal = {};
+    const dirByGoal = {};
     for (const target of targets) {
       // target is <dir>/.loopx/registry.json — strip both segments to get the
       // project directory itself.
@@ -1154,6 +1206,7 @@ module.exports = {
           .map((a) => (typeof a === 'string' ? a : a.agent_id || a.id))
           .filter(Boolean);
         objectivesByGoal[goalId] = readGoalObjective(dir, goal);
+        if (dir) dirByGoal[goalId] = dir;
       }
     }
 
@@ -1188,6 +1241,7 @@ module.exports = {
         state: state || null,
         agents: agentsByGoal[goalId] || [],
         objective: objectivesByGoal[goalId] || null,
+        projectDir: dirByGoal[goalId] || null,
         ...extra,
       });
     };
