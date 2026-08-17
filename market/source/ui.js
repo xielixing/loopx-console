@@ -1562,7 +1562,14 @@ function newGoalState(goalId, info) {
       ? (S.config.monitorByGoal[goalId] !== false && S.config.stoppedByGoal[goalId] !== true)
       : S.config.monitorByGoal[goalId] === true,
     userStopped: S.config.stoppedByGoal[goalId] === true,
-    autoRun: S.config.autoRunByGoal[goalId] === true,
+    // loopx's philosophy is auto-run by default: owned goals execute
+    // automatically unless the user explicitly switched auto-run off.
+    // (Re-discovered cache goals on a fresh import get a fresh config, so
+    // defaulting to ON keeps them running instead of vanishing into the
+    // hidden queued state.)
+    autoRun: isOwnedGoal(goalId)
+      ? S.config.autoRunByGoal[goalId] !== false
+      : S.config.autoRunByGoal[goalId] === true,
     autoFailCount: 0,
     intervalMin: DEFAULT_INTERVAL_MIN,
     nextDueAt: 0,
