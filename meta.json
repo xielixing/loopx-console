@@ -17,6 +17,7 @@
     "net": { "allow": ["api.github.com", "github.com"] },
     "notifications": { "system": true },
     "agent": { "enabled": true },
+    "ai": { "enabled": true },
     "host": {
       "reveal_in_folder": true,
       "open_external": true

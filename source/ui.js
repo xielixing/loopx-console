@@ -142,6 +142,13 @@ const I18N = {
     adopt: '接管',
     adoptedLabel: '已接管',
     adoptFailed: (e) => `接管失败：${e}`,
+    setModel: '执行模型（长程任务的默认值；每个任务可在详情里单独覆盖）',
+    modelAuto: '自动（跟随 BitFun 策略）',
+    modelPrimary: 'primary（主模型）',
+    modelFast: 'fast（快模型）',
+    modelFollowGlobal: '跟随全局默认',
+    detailModel: '执行模型',
+    modelChanged: (m) => `执行模型已切换为 ${m}`,
     taskNeedAgent: '请先在设置中配置新任务默认 Agent。',
     taskCreated: (id) => `任务 ${id} 已创建`,
     taskRepoMismatch: (expected, actual) => `链接指向 ${expected}，当前项目是 ${actual}。请切换到正确的本地 checkout。`,
@@ -284,6 +291,13 @@ const I18N = {
     adopt: 'Adopt',
     adoptedLabel: 'Adopted',
     adoptFailed: (e) => `Adopt failed: ${e}`,
+    setModel: 'Execution model (global default for long-running tasks; each task can override it in its details)',
+    modelAuto: 'Auto (follow BitFun policy)',
+    modelPrimary: 'primary (main model)',
+    modelFast: 'fast (fast model)',
+    modelFollowGlobal: 'Follow global default',
+    detailModel: 'Execution model',
+    modelChanged: (m) => `Execution model switched to ${m}`,
     taskNeedAgent: 'Configure the default Agent for new tasks in Settings first.',
     taskCreated: (id) => `Task ${id} created`,
     taskRepoMismatch: (expected, actual) => `The link targets ${expected}, but the current project is ${actual}. Select the matching local checkout.`,
@@ -309,6 +323,7 @@ const S = {
   config: {
     projectDir: null, argvPrefix: null, srcDir: '', agentByGoal: {}, monitorByGoal: {},
     projectByGoal: {}, ownedGoals: {}, defaultAgentId: 'bitfun-agent', autoRunByGoal: {},
+    defaultModel: 'auto', modelByGoal: {},
   },
   detect: null,
   goals: new Map(), // goalId -> G
@@ -349,6 +364,46 @@ function projectRegistryDirs() {
     if (dir && !dirs.includes(dir)) dirs.push(dir);
   }
   return dirs;
+}
+
+// ── execution model selection ───────────────────────────────
+// Long-running fixes let the user pick the host agent model per goal, with a
+// global default in Settings. Values: 'auto' | 'primary' | 'fast' | a concrete
+// model config id from the host's model list.
+S.modelCatalog = [];
+function modelForGoal(goalId) {
+  return S.config.modelByGoal[goalId] || S.config.defaultModel || 'auto';
+}
+
+const MODEL_PRESETS = [
+  { value: 'auto', i18n: 'modelAuto' },
+  { value: 'primary', i18n: 'modelPrimary' },
+  { value: 'fast', i18n: 'modelFast' },
+];
+
+function fillModelSelect(select, currentValue, includeFollowGlobal) {
+  select.replaceChildren();
+  if (includeFollowGlobal) {
+    const follow = document.createElement('option');
+    follow.value = '';
+    follow.textContent = t('modelFollowGlobal');
+    select.appendChild(follow);
+  }
+  for (const preset of MODEL_PRESETS) {
+    const option = document.createElement('option');
+    option.value = preset.value;
+    option.textContent = t(preset.i18n);
+    option.selected = currentValue === preset.value;
+    select.appendChild(option);
+  }
+  for (const model of S.modelCatalog || []) {
+    if (!model || !model.id) continue;
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.name || model.id;
+    option.selected = currentValue === model.id;
+    select.appendChild(option);
+  }
 }
 
 function newGoalState(goalId, info) {
@@ -1193,6 +1248,21 @@ function renderGoalDetails(g) {
     agentField.appendChild(input);
   }
   controls.appendChild(agentField);
+  const modelField = document.createElement('label');
+  modelField.className = 'field';
+  const modelLabel = document.createElement('span');
+  modelLabel.textContent = t('detailModel');
+  modelField.appendChild(modelLabel);
+  const modelSelect = document.createElement('select');
+  fillModelSelect(modelSelect, S.config.modelByGoal[g.goalId] || '', true);
+  modelSelect.onchange = () => {
+    S.config.modelByGoal[g.goalId] = modelSelect.value;
+    saveConfig();
+    log(`[${g.goalId}] ${t('modelChanged', modelForGoal(g.goalId))}`, false);
+    renderGoalDetails(g);
+  };
+  modelField.appendChild(modelSelect);
+  controls.appendChild(modelField);
   const monitor = document.createElement('label');
   monitor.className = 'detail__toggle';
   monitor.appendChild(document.createTextNode(t('monitor')));
@@ -1515,6 +1585,7 @@ async function executeRunOnce(g) {
       sessionName: `LoopX · ${g.goalId}`,
       sessionId: S.agentSessionByGoal.get(g.goalId) || undefined,
       enableTools: true,
+      model: modelForGoal(g.goalId),
     });
     S.agentSessionByGoal.set(g.goalId, run.sessionId);
     const startedAt = Date.now();
@@ -1750,6 +1821,7 @@ document.getElementById('btn-settings').addEventListener('click', () => {
       S.config.argvPrefix = null;
     }
     S.config.srcDir = document.getElementById('set-srcdir').value.trim();
+    S.config.defaultModel = document.getElementById('set-model').value || 'auto';
     await saveConfig();
     if (await detect()) refreshGoals();
   };
@@ -2253,6 +2325,14 @@ window.addEventListener('beforeunload', () => {
   dbgUi('boot:start', `locale=${app && app.locale}`);
   await loadConfig();
   dbgUi('boot:configLoaded', JSON.stringify({ projectDir: S.config.projectDir || null, argvPrefix: S.config.argvPrefix }));
+  try {
+    const catalog = await app.ai.getModels();
+    if (Array.isArray(catalog)) S.modelCatalog = catalog;
+    dbgUi('boot:models', `catalog=${S.modelCatalog.length}`);
+  } catch (err) {
+    dbgUi('boot:modelsError', String(err && err.message || err));
+  }
+  fillModelSelect(document.getElementById('set-model'), S.config.defaultModel || 'auto', false);
   applyI18n();
   startCountdownLoop();
   updateHeaderStatus();
