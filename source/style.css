@@ -120,17 +120,22 @@ button, input, select { font: inherit; }
 /* The board fills the view; the composer is its bottom command bar. */
 .workspace { flex: 1; min-height: 0; display: flex; overflow: auto; }
 .board {
-  display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr));
+  display: grid; grid-template-columns: repeat(2, 290px);
   grid-template-rows: minmax(0, 1fr) auto; gap: 12px;
-  min-width: 560px; flex: 1 1 auto; min-height: 0; padding: 14px 14px 8px;
+  flex: 0 0 auto; min-height: 0; padding: 14px 14px 8px;
   overflow: auto; background: var(--lx-bg);
 }
-/* Master-detail: the selected goal's info + live activity stream rides beside
-   the two columns; closing it returns the full width to the board. */
+/* Master-detail: the selected goal's info + live activity stream takes the
+   remaining width beside the two narrow card columns. */
 .detail-panel {
-  flex: 0 0 min(400px, 34vw); min-width: 320px; display: flex; flex-direction: column;
+  flex: 1 1 auto; min-width: 340px; display: flex; flex-direction: column;
   min-height: 0; margin: 0 0 8px; border-left: 1px solid var(--lx-border);
   background: var(--lx-surface);
+}
+.detail-empty {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  color: var(--lx-text-mute); font-size: 12px;
 }
 .detail-panel__header {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
@@ -352,7 +357,6 @@ button, input, select { font: inherit; }
 
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; }
-  .board { min-width: 560px; }
   .composer { padding: 0 12px 12px; }
   .composer__box { border-radius: 10px; }
 }

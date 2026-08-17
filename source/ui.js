@@ -60,6 +60,7 @@ const I18N = {
     groupReview: '等你处理',
     colSubReview: '阻塞 · 需要你批准后继续',
     colSubActive: 'Agent 正在执行',
+    detailEmptyHint: '点选卡片查看任务详情与实时日志',
     groupDone: '已完成',
     detailOverview: '当前动作',
     detailStatus: '状态',
@@ -213,6 +214,7 @@ const I18N = {
     groupReview: 'Needs you',
     colSubReview: 'Blocking · continues after your approval',
     colSubActive: 'The agent is working',
+    detailEmptyHint: 'Select a card to see its details and live log',
     groupDone: 'Done',
     detailOverview: 'Current action',
     detailStatus: 'Status',
@@ -1653,17 +1655,21 @@ function renderAllGoals(force = false) {
   if (moreGroups.length > 0) list.appendChild(buildMoreFooter(moreGroups));
   // Master-detail: the selected goal's panel rides beside the columns.
   const panel = document.getElementById('goal-detail-panel');
+  const emptyHint = document.getElementById('detail-empty');
   if (S.activeGoalId) {
     const activeGoal = S.goals.get(S.activeGoalId);
     if (activeGoal) {
       panel.hidden = false;
+      emptyHint.hidden = true;
       renderGoalDetails(activeGoal);
     } else {
       S.activeGoalId = null;
       panel.hidden = true;
+      emptyHint.hidden = false;
     }
   } else {
     panel.hidden = true;
+    emptyHint.hidden = false;
   }
   updateHeaderStatus();
 }
