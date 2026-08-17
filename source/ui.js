@@ -964,6 +964,10 @@ function activityText(line) {
   return text.length > 150 ? `${text.slice(0, 147)}...` : text;
 }
 
+function activityDisplayText(entry) {
+  return entry.count > 1 ? `${entry.line} ×${entry.count}` : entry.line;
+}
+
 function activityLineElement(entry) {
   const row = document.createElement('div');
   row.className = 'activity-stream__line' + (entry.isErr ? ' activity-stream__line--err' : '');
@@ -971,7 +975,8 @@ function activityLineElement(entry) {
   time.className = 'activity-stream__time';
   time.textContent = entry.time;
   const text = document.createElement('span');
-  text.textContent = entry.line;
+  text.className = 'activity-stream__text';
+  text.textContent = activityDisplayText(entry);
   row.append(time, text);
   return row;
 }
@@ -981,7 +986,24 @@ function recordGoalActivity(g, line, isErr = false) {
   if (!summary) return;
   if (!Array.isArray(g.activityLines)) g.activityLines = [];
   if (typeof g.currentActivity !== 'string') g.currentActivity = '';
-  const entry = { time: new Date().toTimeString().slice(0, 8), line: summary, isErr };
+  const now = new Date().toTimeString().slice(0, 8);
+  // Collapse back-to-back repeats (tool streams spam the same verb) into one
+  // line with a multiplier instead of a wall of identical rows.
+  const last = g.activityLines[g.activityLines.length - 1];
+  if (last && !last.isErr && !isErr && !last.isTick && last.line === summary) {
+    last.count = (last.count || 1) + 1;
+    last.time = now;
+    const stream = document.querySelector(`.activity-stream[data-goal="${CSS.escape(g.goalId)}"]`);
+    if (stream && stream.lastElementChild) {
+      const textEl = stream.lastElementChild.querySelector('.activity-stream__text');
+      if (textEl) textEl.textContent = activityDisplayText(last);
+      const timeEl = stream.lastElementChild.querySelector('.activity-stream__time');
+      if (timeEl) timeEl.textContent = now;
+    }
+    g.currentActivity = summary;
+    return;
+  }
+  const entry = { time: now, line: summary, isErr, count: 1 };
   g.activityLines.push(entry);
   if (g.activityLines.length > 240) g.activityLines.splice(0, g.activityLines.length - 240);
   g.currentActivity = summary;
@@ -995,6 +1017,44 @@ function recordGoalActivity(g, line, isErr = false) {
     stream.appendChild(activityLineElement(entry));
     while (stream.children.length > 240) stream.removeChild(stream.firstChild);
     if (followTail) stream.scrollTop = stream.scrollHeight;
+  } else {
+    const dlg = document.getElementById('dlg-goal');
+    if (dlg.open && S.activeGoalId === g.goalId) renderGoalDetails(g);
+  }
+}
+
+// The once-per-10s running clock is one LINE that updates in place, not a new
+// row every tick — the stream stays readable while the card text stays live.
+function setGoalActivityTick(g, text) {
+  const summary = activityText(text);
+  if (!summary) return;
+  if (!Array.isArray(g.activityLines)) g.activityLines = [];
+  if (typeof g.currentActivity !== 'string') g.currentActivity = '';
+  const now = new Date().toTimeString().slice(0, 8);
+  g.currentActivity = summary;
+  const cardText = document.querySelector(`.goal__activity-text[data-goal="${CSS.escape(g.goalId)}"]`);
+  if (cardText) cardText.textContent = summary;
+  const last = g.activityLines[g.activityLines.length - 1];
+  const stream = document.querySelector(`.activity-stream[data-goal="${CSS.escape(g.goalId)}"]`);
+  if (last && last.isTick) {
+    last.line = summary;
+    last.time = now;
+    if (stream && stream.lastElementChild) {
+      const textEl = stream.lastElementChild.querySelector('.activity-stream__text');
+      if (textEl) textEl.textContent = summary;
+      const timeEl = stream.lastElementChild.querySelector('.activity-stream__time');
+      if (timeEl) timeEl.textContent = now;
+    }
+    return;
+  }
+  const entry = { time: now, line: summary, isErr: false, count: 1, isTick: true };
+  g.activityLines.push(entry);
+  if (g.activityLines.length > 240) g.activityLines.splice(0, g.activityLines.length - 240);
+  if (stream) {
+    stream.appendChild(activityLineElement(entry));
+    if (stream.scrollHeight - stream.scrollTop - stream.clientHeight < 32) {
+      stream.scrollTop = stream.scrollHeight;
+    }
   } else {
     const dlg = document.getElementById('dlg-goal');
     if (dlg.open && S.activeGoalId === g.goalId) renderGoalDetails(g);
@@ -1711,7 +1771,7 @@ async function executeRunOnce(g) {
     const startedAt = Date.now();
     const tick = setInterval(() => {
       if (isLiveGoal(g) && g.running) {
-        recordGoalActivity(g, t('activityRunning', fmtCountdown(Date.now() - startedAt)));
+        setGoalActivityTick(g, t('activityRunning', fmtCountdown(Date.now() - startedAt)));
       }
     }, 10000);
     agentRuns.set(g.goalId, { sessionId: run.sessionId, turnId: run.turnId, startedAt, tick });
@@ -1796,7 +1856,13 @@ function goalForAgentSession(sessionId) {
 }
 
 // Compact progress narration from the agent event stream: tool calls and
-// turn boundaries, not raw text chunks.
+// turn boundaries, not raw text chunks. Pure read/observe tools (Read, Grep,
+// Glob, …) are the agent's eyes, not progress — skip them; repeats of the
+// same verb collapse into one "×N" line via recordGoalActivity.
+const QUIET_AGENT_TOOLS = new Set([
+  'read', 'grep', 'glob', 'ls', 'list', 'find', 'cat', 'search',
+  'web_search', 'websearch', 'fetch', 'mcp',
+]);
 app.agent.onEvent((e) => {
   const g = goalForAgentSession(e.sessionId);
   if (!g) return;
@@ -1807,7 +1873,10 @@ app.agent.onEvent((e) => {
     const name = te.effectiveToolName || te.effective_tool_name
       || te.toolName || te.tool_name || e.toolName || e.tool_name || e.name;
     const phase = te.event_type || te.phase || e.phase;
-    if (name && phase !== 'Completed' && phase !== 'completed') recordGoalActivity(g, String(name));
+    if (name && phase !== 'Completed' && phase !== 'completed'
+        && !QUIET_AGENT_TOOLS.has(String(name).toLowerCase())) {
+      recordGoalActivity(g, String(name));
+    }
   } else if (e.sourceEvent === 'dialog-turn-completed') {
     finishRun(g, { ok: true });
   } else if (e.sourceEvent === 'dialog-turn-failed') {
