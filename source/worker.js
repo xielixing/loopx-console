@@ -490,6 +490,9 @@ function uniqueGoalId(projectDir, objective, refs) {
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
     base = `task-${stamp}`;
   }
+  // v3.2: miniapp-created goals carry the bfx- prefix so the board can tell
+  // them apart from goals created by other loopx hosts on this machine.
+  base = `bfx-${base}`;
   let goalId = base;
   let suffix = 2;
   while (existing.has(goalId)) goalId = `${base}-${suffix++}`;
@@ -668,6 +671,31 @@ module.exports = {
   async 'loopx.doctor'({ argvPrefix = null, projectDir = null } = {}) {
     const { result, payload } = await runJson(argvPrefix, projectDir, ['doctor']);
     return { ok: result.code === 0, payload, stderr: result.stderr };
+  },
+
+  // v3.2: adopt a goal created by another loopx host on this machine so the
+  // board starts monitoring it. Registers the agent on the goal (idempotent);
+  // execution turns still need a known project directory, which the UI binds
+  // separately.
+  async 'loopx.adoptGoal'({
+    argvPrefix = null, srcDir = null, projectDir = null, goalId, agentId,
+  } = {}) {
+    if (!goalId) throw new Error('loopx.adoptGoal: goalId is required');
+    if (!agentId) {
+      return { ok: true, goalId, registered: false, error: null };
+    }
+    dbgWorker('adoptGoal:start', `goalId=${goalId} agentId=${agentId}`);
+    const { result, payload } = await runJson(argvPrefix, projectDir, [
+      'register-agent', '--goal-id', goalId, '--agent-id', agentId, '--execute',
+    ], { srcDir, timeoutMs: 60000 });
+    const ok = result.code === 0 && payload?.ok !== false;
+    dbgWorker('adoptGoal:done', `ok=${ok}`);
+    return {
+      ok,
+      goalId,
+      registered: ok,
+      error: ok ? null : (payload?.error || result.stderr.slice(0, 300) || 'agent registration failed'),
+    };
   },
 
   // "Paste an issue URL" glue: preview via `issue-fix workflow-plan

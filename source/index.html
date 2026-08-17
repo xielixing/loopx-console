@@ -50,6 +50,19 @@
     </div>
 
     <main class="layout">
+      <section class="composer" aria-label="Create task">
+        <div id="task-feedback" class="composer__feedback" role="status" hidden></div>
+        <div class="composer__box">
+          <textarea id="task-input" rows="2" maxlength="4000" data-i18n-placeholder="taskPlaceholder" placeholder="粘贴 GitHub Issue / 仓库 / Issues 列表链接，可附加修复要求"></textarea>
+          <div class="composer__footer">
+            <div class="composer__context"><span id="task-kind" class="composer__kind" hidden></span></div>
+            <button id="btn-create-task" class="composer__submit" type="button" data-i18n-title="taskCreate">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5V3.5M4.5 7 8 3.5 11.5 7"/></svg>
+              <span class="sr-only" data-i18n="taskCreate">创建任务</span>
+            </button>
+          </div>
+        </div>
+      </section>
       <section id="goal-list" class="board">
         <div id="goals-empty" class="empty hero">
           <div class="hero__badge" aria-hidden="true">
@@ -62,20 +75,6 @@
         </div>
       </section>
     </main>
-
-    <section class="composer" aria-label="Create task">
-      <div id="task-feedback" class="composer__feedback" role="status" hidden></div>
-      <div class="composer__box">
-        <textarea id="task-input" rows="2" maxlength="4000" data-i18n-placeholder="taskPlaceholder" placeholder="粘贴 GitHub Issue / 仓库 / Issues 列表链接，可附加修复要求"></textarea>
-        <div class="composer__footer">
-          <div class="composer__context"><span id="task-kind" class="composer__kind" hidden></span></div>
-          <button id="btn-create-task" class="composer__submit" type="button" data-i18n-title="taskCreate">
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5V3.5M4.5 7 8 3.5 11.5 7"/></svg>
-            <span class="sr-only" data-i18n="taskCreate">创建任务</span>
-          </button>
-        </div>
-      </div>
-    </section>
 
     <dialog id="dlg-goal" class="drawer">
       <section class="drawer__shell">

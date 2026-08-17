@@ -137,6 +137,11 @@ const I18N = {
     stageClonePercent: (p) => `正在克隆仓库… ${p}%`,
     intakeCloneNote: (repo) => `将自动克隆 ${repo} 到小应用数据目录并开始修复（无需本地 checkout）。`,
     openRepoDir: '打开仓库目录',
+    otherTasksTitle: '本机其它 loopx 任务',
+    otherTasksHint: '非本控制台创建，默认不监控。接管后进入看板并开始心跳轮询。',
+    adopt: '接管',
+    adoptedLabel: '已接管',
+    adoptFailed: (e) => `接管失败：${e}`,
     taskNeedAgent: '请先在设置中配置新任务默认 Agent。',
     taskCreated: (id) => `任务 ${id} 已创建`,
     taskRepoMismatch: (expected, actual) => `链接指向 ${expected}，当前项目是 ${actual}。请切换到正确的本地 checkout。`,
@@ -274,6 +279,11 @@ const I18N = {
     stageClonePercent: (p) => `Cloning repository… ${p}%`,
     intakeCloneNote: (repo) => `${repo} will be cloned into the MiniApp data directory (no local checkout needed).`,
     openRepoDir: 'Open repository folder',
+    otherTasksTitle: 'Other local loopx goals',
+    otherTasksHint: 'Created by other loopx hosts; not monitored until adopted.',
+    adopt: 'Adopt',
+    adoptedLabel: 'Adopted',
+    adoptFailed: (e) => `Adopt failed: ${e}`,
     taskNeedAgent: 'Configure the default Agent for new tasks in Settings first.',
     taskCreated: (id) => `Task ${id} created`,
     taskRepoMismatch: (expected, actual) => `The link targets ${expected}, but the current project is ${actual}. Select the matching local checkout.`,
@@ -298,7 +308,7 @@ const ERROR_BACKOFF_CAP_MIN = 30;
 const S = {
   config: {
     projectDir: null, argvPrefix: null, srcDir: '', agentByGoal: {}, monitorByGoal: {},
-    projectByGoal: {}, defaultAgentId: 'bitfun-agent', autoRunByGoal: {},
+    projectByGoal: {}, ownedGoals: {}, defaultAgentId: 'bitfun-agent', autoRunByGoal: {},
   },
   detect: null,
   goals: new Map(), // goalId -> G
@@ -320,6 +330,16 @@ function goalProjectDir(goalId) {
   return S.config.projectByGoal[goalId] || S.config.projectDir || null;
 }
 
+// v3.2: the board only manages goals this console created (bfx- prefix or an
+// explicit adoption record). Goals created by other loopx hosts on this
+// machine are shown separately and stay unmonitored until adopted.
+function isOwnedGoal(goalId) {
+  if (!goalId) return false;
+  if (String(goalId).startsWith('bfx-')) return true;
+  if (S.config.ownedGoals && S.config.ownedGoals[goalId]) return true;
+  return false;
+}
+
 // All registries the board should aggregate: the selected checkout plus every
 // clone directory recorded for created goals.
 function projectRegistryDirs() {
@@ -339,7 +359,11 @@ function newGoalState(goalId, info) {
     agentId: S.config.agentByGoal[goalId] || (info.agents && info.agents[0]) || '',
     state: info.state || null,
     waitingOn: info.waitingOn ?? null,
-    monitoring: S.config.monitorByGoal[goalId] !== false,
+    // v3.2: only owned goals poll by default; other-host goals stay quiet
+    // until the user adopts them.
+    monitoring: isOwnedGoal(goalId)
+      ? S.config.monitorByGoal[goalId] !== false
+      : S.config.monitorByGoal[goalId] === true,
     autoRun: S.config.autoRunByGoal[goalId] === true,
     autoFailCount: 0,
     intervalMin: DEFAULT_INTERVAL_MIN,
@@ -851,6 +875,81 @@ function buildIntakeCard(draft) {
   return el;
 }
 
+// v3.2: goals created by other loopx hosts on this machine. Listed in a
+// collapsed section; each row offers one-click adoption (register agent +
+// start heartbeat). Execution turns still require a known project directory.
+async function adoptGoal(g, btn) {
+  if (btn) btn.disabled = true;
+  const agentId = g.agents[0] || resolveDefaultAgent();
+  try {
+    const res = await app.call('loopx.adoptGoal', {
+      argvPrefix: S.config.argvPrefix,
+      srcDir: S.config.srcDir || null,
+      projectDir: goalProjectDir(g.goalId) || S.config.projectDir,
+      goalId: g.goalId,
+      agentId,
+    });
+    if (!res.ok) throw new Error(res.error || 'adopt failed');
+    S.config.ownedGoals[g.goalId] = true;
+    S.config.agentByGoal[g.goalId] = agentId;
+    S.config.monitorByGoal[g.goalId] = true;
+    await saveConfig();
+    g.agentId = agentId;
+    g.monitoring = true;
+    log(`[${g.goalId}] ${t('adoptedLabel')}`);
+    renderAllGoals(true);
+    pollNow(g);
+  } catch (err) {
+    log(`[${g.goalId}] ${t('adoptFailed', err.message || err)}`, true);
+    if (btn) btn.disabled = false;
+    renderAllGoals(true);
+  }
+}
+
+function buildOtherGoalsSection(goals) {
+  const aside = document.createElement('aside');
+  aside.className = 'archive other-tasks';
+  const head = document.createElement('div');
+  head.className = 'archive__head';
+  const title = document.createElement('span');
+  title.textContent = t('otherTasksTitle');
+  const count = document.createElement('span');
+  count.className = 'archive__count';
+  count.textContent = String(goals.length);
+  head.append(title, count);
+  aside.appendChild(head);
+  const body = document.createElement('div');
+  body.className = 'other-tasks__body';
+  const hint = document.createElement('p');
+  hint.className = 'other-tasks__hint';
+  hint.textContent = t('otherTasksHint');
+  body.appendChild(hint);
+  for (const g of goals) {
+    const row = document.createElement('div');
+    row.className = 'other-tasks__row';
+    const meta = document.createElement('div');
+    meta.className = 'other-tasks__meta';
+    const id = document.createElement('span');
+    id.className = 'other-tasks__id';
+    id.textContent = g.goalId;
+    id.title = g.goalId;
+    const narration = document.createElement('span');
+    narration.className = 'other-tasks__text';
+    narration.textContent = goalNarration(g);
+    narration.title = goalNarration(g);
+    meta.append(id, narration);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn--small';
+    btn.textContent = t('adopt');
+    btn.onclick = () => adoptGoal(g, btn);
+    row.append(meta, btn);
+    body.appendChild(row);
+  }
+  aside.appendChild(body);
+  return aside;
+}
+
 function buildGoalCard(g, compact = false) {
   const group = goalGroup(g);
   const el = document.createElement('button');
@@ -1238,7 +1337,12 @@ function renderAllGoals(force = false) {
   for (const child of [...list.children]) {
     if (child.id !== 'goals-empty') child.remove();
   }
-  const hasVisibleTasks = S.goals.size > 0 || !!S.intakeDraft;
+  // v3.2: the board shows only goals this console owns; other-host goals are
+  // listed separately and stay unmonitored until adopted.
+  const owned = [];
+  const other = [];
+  for (const g of S.goals.values()) (isOwnedGoal(g.goalId) ? owned : other).push(g);
+  const hasVisibleTasks = owned.length > 0 || !!S.intakeDraft;
   empty.hidden = hasVisibleTasks;
   // Hero mode: with nothing on the board, the app IS the input box — the
   // layout collapses so the composer sits centered right under the pitch.
@@ -1248,7 +1352,7 @@ function renderAllGoals(force = false) {
     return;
   }
   const buckets = new Map([...PRIMARY_GROUPS, ...ARCHIVE_GROUPS].map((k) => [k, []]));
-  for (const g of S.goals.values()) buckets.get(goalGroup(g)).push(g);
+  for (const g of owned) buckets.get(goalGroup(g)).push(g);
   for (const key of PRIMARY_GROUPS) {
     const goals = buckets.get(key);
     const pendingCount = key === 'ready' && S.intakeDraft ? 1 : 0;
@@ -1327,6 +1431,7 @@ function renderAllGoals(force = false) {
   }
   archive.appendChild(archiveBody);
   list.appendChild(archive);
+  if (other.length > 0) list.appendChild(buildOtherGoalsSection(other));
   if (S.activeGoalId) {
     const activeGoal = S.goals.get(S.activeGoalId);
     if (activeGoal) renderGoalDetails(activeGoal);
@@ -1959,6 +2064,7 @@ app.on('worker:taskIntake:done', async (result) => {
     S.config.agentByGoal[result.goalId] = agentId;
     S.config.monitorByGoal[result.goalId] = true;
     S.config.autoRunByGoal[result.goalId] = true;
+    S.config.ownedGoals[result.goalId] = true;
     if (result.projectDir) S.config.projectByGoal[result.goalId] = result.projectDir;
     await saveConfig();
   }
