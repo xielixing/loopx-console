@@ -185,6 +185,9 @@ button, input, select { font: inherit; }
   align-items: center; justify-content: center; gap: 10px;
   color: var(--lx-text-mute); font-size: 12px;
 }
+/* Structural coupling: whenever the detail panel is visible the empty hint
+   is hidden — no JS timing can leave both in the flex row at once. */
+.run-frame:has(#goal-detail-panel:not([hidden])) #detail-empty { display: none; }
 .detail-panel__header {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
   padding: 13px 14px 11px; border-bottom: 1px solid var(--lx-border);

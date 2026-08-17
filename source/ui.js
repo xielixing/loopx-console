@@ -1451,6 +1451,7 @@ async function deleteGoalTask(g) {
 function openGoalDetails(g) {
   S.activeGoalId = g.goalId;
   document.getElementById('goal-detail-panel').hidden = false;
+  document.getElementById('detail-empty').hidden = true;
   renderGoalDetails(g);
   renderAllGoals(true); // mark the selected card
 }
@@ -1723,6 +1724,7 @@ async function executeRunOnce(g) {
   if (S.activeGoalId !== g.goalId) {
     S.activeGoalId = g.goalId;
     document.getElementById('goal-detail-panel').hidden = false;
+    document.getElementById('detail-empty').hidden = true;
   }
   // The liveness tick starts immediately: the panel keeps moving even while
   // turnPrompt / agent.run are still in flight (or stuck), so a silent
