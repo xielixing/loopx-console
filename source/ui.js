@@ -23,8 +23,6 @@ const I18N = {
     agentFree: '手动输入 agent id…',
     runOnce: '执行一次',
     cancelRun: '取消运行',
-    lastRun: (code, s) => `上次运行 exit=${code} · ${s}s`,
-    lastRunCancelled: '上次运行已取消',
     resume: '已暂停 · 点击恢复',
     stopTask: '停止任务',
     stopTaskHint: '停止该任务：取消本次运行、关闭心跳监控与自动执行',
@@ -66,13 +64,8 @@ const I18N = {
     groupDone: '已完成',
     detailOverview: '当前动作',
     detailStatus: '状态',
-    detailState: '阶段',
     detailControls: '执行设置',
-    detailAgent: 'Agent',
-    detailHeartbeat: '心跳',
-    detailLastRun: '最近执行',
     detailSchedule: '下次轮询',
-    heroTitle: '粘贴链接，自动修复 GitHub Issues',
     taskPlaceholder: '粘贴 GitHub Issue / 仓库首页 / Issues 列表链接，可附加修复要求',
     taskGoalUnsupported: '请粘贴 GitHub Issue、PR、仓库首页或 Issues 列表链接（自由目标暂未开放）',
     taskUnsupportedPath: (u) => `不支持的 GitHub 链接：${u}。请粘贴 Issue、PR、仓库首页或 Issues 列表链接`,
@@ -184,8 +177,6 @@ const I18N = {
     agentFree: 'Type agent id…',
     runOnce: 'Run once',
     cancelRun: 'Cancel run',
-    lastRun: (code, s) => `last run exit=${code} · ${s}s`,
-    lastRunCancelled: 'last run cancelled',
     resume: 'Paused · click to resume',
     stopTask: 'Stop task',
     stopTaskHint: 'Stop this task: cancel the current run, disable heartbeat and auto-run',
@@ -227,13 +218,8 @@ const I18N = {
     groupDone: 'Done',
     detailOverview: 'Current action',
     detailStatus: 'Status',
-    detailState: 'Stage',
     detailControls: 'Execution settings',
-    detailAgent: 'Agent',
-    detailHeartbeat: 'Heartbeat',
-    detailLastRun: 'Last run',
     detailSchedule: 'Next poll',
-    heroTitle: 'Paste a link, auto-fix GitHub issues',
     taskPlaceholder: 'Paste a GitHub issue / repository home / issues-list link, optionally with fix instructions',
     taskGoalUnsupported: 'Paste a GitHub issue, pull request, repository home, or issues-list link (free-form goals are not open yet)',
     taskUnsupportedPath: (u) => `Unsupported GitHub link: ${u}. Paste an issue, a pull request, the repository home, or its issues list.`,
@@ -1281,16 +1267,10 @@ function renderGoalDetails(g) {
   const grid = document.createElement('div');
   grid.className = 'detail__grid';
   const waiting = g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn;
-  appendDetailRow(grid, t('detailState'), waiting ? `${g.last?.state ?? g.state ?? '—'} · ${t('waitingOn', waiting)}` : (g.last?.state ?? g.state));
-  appendDetailRow(grid, t('detailAgent'), g.agentId);
-  appendDetailRow(grid, t('detailHeartbeat'), g.monitoring ? t('presenceLive') : t('presenceIdle'));
+  appendDetailRow(grid, t('detailStatus'), waiting
+    ? `${g.last?.state ?? g.state ?? '—'} · ${t('waitingOn', waiting)}`
+    : (g.last?.state ?? g.state ?? '—'));
   appendDetailRow(grid, t('detailSchedule'), goalMetaText(g), g.errorCount ? 'countdown--err' : '', g.goalId);
-  if (g.lastRun) {
-    appendDetailRow(grid, t('detailLastRun'), g.lastRun.cancelled
-      ? t('lastRunCancelled')
-      : t('lastRun', g.lastRun.exitCode, Math.round((g.lastRun.durationMs || 0) / 1000)),
-    !g.lastRun.ok && !g.lastRun.cancelled ? 'goal__lastrun--err' : '');
-  }
   status.append(statusLabel, grid);
   body.appendChild(status);
 
@@ -1387,13 +1367,27 @@ function renderGoalDetails(g) {
     const dirRow = document.createElement('div');
     dirRow.className = 'detail__repodir';
     const dirText = document.createElement('span');
-    dirText.className = 'detail__repodir-text';
+    dirText.className = 'detail__repodir-path';
     dirText.textContent = goalDir;
     dirText.title = goalDir;
     const dirButton = document.createElement('button');
     dirButton.type = 'button';
-    dirButton.className = 'link-btn';
-    dirButton.textContent = t('openRepoDir');
+    dirButton.className = 'btn btn--small detail__repodir-btn';
+    const folderIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    folderIcon.setAttribute('width', '13');
+    folderIcon.setAttribute('height', '13');
+    folderIcon.setAttribute('viewBox', '0 0 16 16');
+    folderIcon.setAttribute('fill', 'none');
+    folderIcon.setAttribute('stroke', 'currentColor');
+    folderIcon.setAttribute('stroke-width', '1.5');
+    folderIcon.setAttribute('stroke-linecap', 'round');
+    folderIcon.setAttribute('stroke-linejoin', 'round');
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathEl.setAttribute('d', 'M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.8h5A1.5 1.5 0 0 1 14 6.3v5.2a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z');
+    folderIcon.appendChild(pathEl);
+    const dirLabel = document.createElement('span');
+    dirLabel.textContent = t('openRepoDir');
+    dirButton.append(folderIcon, dirLabel);
     dirButton.onclick = () => {
       try { app.system.revealInFolder(goalDir); } catch (err) {
         log(`reveal failed: ${err.message || err}`, true);
@@ -1436,13 +1430,6 @@ function renderGoalDetails(g) {
     stop.onclick = () => stopGoalTask(g);
     actions.appendChild(stop);
   }
-  const raw = document.createElement('button');
-  raw.type = 'button';
-  raw.className = 'btn';
-  raw.textContent = t('raw');
-  raw.disabled = !g.last;
-  raw.onclick = () => showRawJson(g);
-  actions.appendChild(raw);
   body.appendChild(actions);
 }
 
@@ -1534,15 +1521,8 @@ function renderAllGoals(force = false) {
   const owned = [];
   const other = [];
   for (const g of S.goals.values()) (isOwnedGoal(g.goalId) ? owned : other).push(g);
-  const hasVisibleTasks = owned.length > 0 || !!S.intakeDraft;
-  // Hero mode: with nothing on the board, the app IS the input box — the
-  // board collapses and the composer rises to the center of the viewport.
-  document.getElementById('app').classList.toggle('lx--hero', !hasVisibleTasks);
-  document.getElementById('composer-pitch').hidden = hasVisibleTasks;
-  if (!hasVisibleTasks) {
-    updateHeaderStatus();
-    return;
-  }
+  // The board is always visible — empty columns are part of the default view;
+  // the composer sits at the bottom as its command bar.
   const buckets = new Map([...PRIMARY_GROUPS, ...ARCHIVE_GROUPS].map((k) => [k, []]));
   for (const g of owned) buckets.get(goalGroup(g)).push(g);
   // Queued column: runs the scheduler wants NOW first, then by due time.
