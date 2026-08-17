@@ -215,10 +215,16 @@
   }
 
   async function uniqueGoalId(projectDir, objective, refs) {
-    const { registry } = await readRegistry(projectDir);
-    const existing = new Set(((registry && registry.goals) || [])
-      .map((goal) => goal.goal_id || goal.id)
-      .filter(Boolean));
+    // loopx enforces GLOBAL uniqueness of goal ids: union the project and
+    // global registry ids so a stale global route never collides.
+    const existing = new Set();
+    for (const dir of [projectDir, null]) {
+      const { registry } = await readRegistry(dir);
+      for (const goal of (registry && registry.goals) || []) {
+        const id = goal.goal_id || goal.id;
+        if (id) existing.add(id);
+      }
+    }
     const issueRefs = refs.filter((ref) => ref.kind === 'issue' || ref.kind === 'pr');
     const listRef = refs.find((ref) => ref.kind === 'issues-list');
     let base;
@@ -635,6 +641,19 @@
             registry.updated_at = new Date().toISOString();
             await app.fs.writeFile(registryPath, JSON.stringify(registry, null, 2));
             registryRemoved = true;
+          }
+        }
+      } catch (_) {}
+      // Also drop the global route (loopx keeps one per goal; a leftover
+      // collides with the next bootstrap reusing the same base id).
+      try {
+        const greg = JSON.parse(await readText(globalRegistryPath));
+        if (Array.isArray(greg.goals)) {
+          const before = greg.goals.length;
+          greg.goals = greg.goals.filter((goal) => (goal.goal_id || goal.id) !== goalId);
+          if (greg.goals.length < before) {
+            greg.updated_at = new Date().toISOString();
+            await app.fs.writeFile(globalRegistryPath, JSON.stringify(greg, null, 2));
           }
         }
       } catch (_) {}

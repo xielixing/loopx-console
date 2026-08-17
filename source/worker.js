@@ -475,10 +475,18 @@ function projectGithubRepository(projectDir) {
 }
 
 function uniqueGoalId(projectDir, objective, refs) {
-  const { registry } = readRegistry(projectDir);
-  const existing = new Set(((registry && registry.goals) || [])
-    .map((goal) => goal.goal_id || goal.id)
-    .filter(Boolean));
+  // loopx enforces GLOBAL uniqueness of goal ids (a global route with the
+  // same id but a different repo rejects bootstrap). Union the project
+  // registry ids with the global registry ids so a fresh suffix is chosen
+  // instead of colliding with a stale global route.
+  const existing = new Set();
+  for (const dir of [projectDir, null]) {
+    const { registry } = readRegistry(dir);
+    for (const goal of (registry && registry.goals) || []) {
+      const id = goal.goal_id || goal.id;
+      if (id) existing.add(id);
+    }
+  }
   const issueRefs = refs.filter((ref) => ref.kind === 'issue' || ref.kind === 'pr');
   const listRef = refs.find((ref) => ref.kind === 'issues-list');
   let base;
@@ -946,6 +954,25 @@ module.exports = {
       }
     } catch (err) {
       dbgWorker('deleteGoal:registryError', `${err.message}`);
+    }
+    // loopx also keeps a global route for every goal; a leftover global entry
+    // collides with the next bootstrap reusing the same base id.
+    try {
+      const globalPath = resolveRegistryPath(null);
+      const graw = fs.readFileSync(globalPath, 'utf8');
+      const greg = JSON.parse(graw);
+      if (Array.isArray(greg.goals)) {
+        const before = greg.goals.length;
+        greg.goals = greg.goals.filter((goal) => (goal.goal_id || goal.id) !== goalId);
+        if (greg.goals.length < before) {
+          const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+          fs.copyFileSync(globalPath, `${globalPath}.del-bak-${stamp}`);
+          greg.updated_at = new Date().toISOString();
+          fs.writeFileSync(globalPath, `${JSON.stringify(greg, null, 2)}\n`);
+        }
+      }
+    } catch (err) {
+      dbgWorker('deleteGoal:globalRegistryError', `${err.message}`);
     }
     dbgWorker('deleteGoal:done', `archived=${archived} registryRemoved=${registryRemoved}`);
     return {
