@@ -54,9 +54,11 @@
     <div id="banner-nodetect" class="banner banner--warn" hidden>
       <div class="banner__body">
         <strong data-i18n="notFoundTitle">未检测到 loopx CLI</strong>
-        <span data-i18n="notFoundHint">请先安装 loopx，或在设置中指定调用命令。</span>
+        <span data-i18n="notFoundHint">点击右侧按钮一键安装 loopx；也可以在自己的终端执行 pip install git+https://github.com/huangruiteng/loopx.git（需要 Python 与 git）。</span>
+        <pre id="install-progress" class="probe-detail" hidden></pre>
         <pre id="probe-detail" class="probe-detail" hidden></pre>
       </div>
+      <button id="btn-install-loopx" class="btn btn--primary" type="button" data-i18n="installLoopxBtn" hidden>一键安装 loopx</button>
       <button id="btn-retry-detect" class="btn" type="button" data-i18n="retry">重试</button>
     </div>
 

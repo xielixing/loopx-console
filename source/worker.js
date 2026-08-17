@@ -339,8 +339,25 @@ async function detectLoopx(customPrefix, srcDir = null) {
   return { found: false, argvPrefix: null, version: null, probes };
 }
 
-function resolveRegistryPath(projectDir) {
-  if (projectDir) return path.join(projectDir, '.loopx', 'registry.json');
+// Absolute python.exe locations (robust against a restricted worker PATH).
+function pythonCandidates() {
+  const list = [];
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) {
+    const pyRoot = path.join(localAppData, 'Programs', 'Python');
+    let versions = [];
+    try {
+      versions = fs.readdirSync(pyRoot).filter((name) => /^Python\d+$/.test(name));
+    } catch (_) {}
+    for (const version of versions) {
+      const exe = path.join(pyRoot, version, 'python.exe');
+      if (fs.existsSync(exe)) list.push(exe);
+    }
+  }
+  return list;
+}
+
+function resolveRegistryPath(projectDir) {  if (projectDir) return path.join(projectDir, '.loopx', 'registry.json');
   // Mirror the CLI: LOOPX_REGISTRY wins only if the file exists; otherwise
   // loopx itself falls back to the global registry.
   if (process.env.LOOPX_REGISTRY && fs.existsSync(process.env.LOOPX_REGISTRY)) {
@@ -715,6 +732,41 @@ module.exports = {
   async 'loopx.detect'({ argvPrefix = null, srcDir = null } = {}) {
     dbgWorker('detect:start', `argvPrefix=${JSON.stringify(argvPrefix)} srcDir=${srcDir || ''}`);
     return detectLoopx(argvPrefix, srcDir);
+  },
+
+  // One-click bootstrap: pip-install loopx from source. Progress lines stream
+  // through installLoopx:progress events. Absolute python.exe candidates come
+  // first (the worker PATH may be restricted); pip-on-PATH is the fallback.
+  async 'loopx.installLoopx'({} = {}) {
+    const emit = (line) => global.rpcEmit('installLoopx:progress', { line });
+    const target = 'git+https://github.com/huangruiteng/loopx.git';
+    const attempts = [];
+    for (const pythonExe of pythonCandidates()) {
+      attempts.push({ argv: [pythonExe, '-m', 'pip', 'install', target] });
+    }
+    attempts.push({ argv: ['pip', 'install', target] });
+    attempts.push({ argv: ['python', '-m', 'pip', 'install', target] });
+    let lastError = null;
+    for (const prefix of attempts) {
+      emit(`$ ${prefix.argv.join(' ')}`);
+      try {
+        const { code, stderr } = await spawnLoopx(prefix, [], {
+          timeoutMs: 600000,
+          onStderrLine: (line) => emit(String(line).slice(0, 140)),
+        });
+        if (code === 0) {
+          emit('install complete');
+          cachedPrefix = null;
+          const detected = await detectLoopx(null, null);
+          return { ok: true, found: detected.found, version: detected.version || null };
+        }
+        lastError = stderr.slice(-300) || `exit ${code}`;
+      } catch (err) {
+        lastError = String(err.message || err);
+      }
+      emit(`failed: ${lastError.slice(0, 140)}`);
+    }
+    return { ok: false, error: lastError || 'pip install failed' };
   },
 
   async 'loopx.doctor'({ argvPrefix = null, projectDir = null } = {}) {

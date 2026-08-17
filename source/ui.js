@@ -32,7 +32,11 @@ const I18N = {
     refresh: '刷新目标列表',
     retry: '重试',
     notFoundTitle: '未检测到 loopx CLI',
-    notFoundHint: '请先安装 loopx：在系统终端执行 pip install git+https://github.com/huangruiteng/loopx.git（需要 Python 与 git），或点击重试。',
+    notFoundHint: '点击右侧按钮一键安装 loopx；也可以在自己的终端执行 pip install git+https://github.com/huangruiteng/loopx.git（需要 Python 与 git）。',
+    installLoopxBtn: '一键安装 loopx',
+    installingLoopx: '正在安装…（可能需要几分钟）',
+    installDone: '安装完成',
+    installFailed: '安装失败',
     runOnce: '执行一次',
     resumeTask: '继续任务',
     resumeTaskHint: '继续该任务：恢复心跳监控与自动执行',
@@ -179,7 +183,11 @@ const I18N = {
     refresh: 'Refresh goals',
     retry: 'Retry',
     notFoundTitle: 'loopx CLI not found',
-    notFoundHint: 'Install loopx first: run pip install git+https://github.com/huangruiteng/loopx.git in your own terminal (requires Python and git), or retry.',
+    notFoundHint: 'Install loopx with the button on the right, or run pip install git+https://github.com/huangruiteng/loopx.git in your own terminal (requires Python and git).',
+    installLoopxBtn: 'Install loopx',
+    installingLoopx: 'Installing… (may take a few minutes)',
+    installDone: 'Installation complete',
+    installFailed: 'Installation failed',
     runOnce: 'Run once',
     resumeTask: 'Resume task',
     resumeTaskHint: 'Resume this task: restore heartbeat and auto-run',
@@ -1943,6 +1951,7 @@ async function detect() {
   updateHeaderStatus();
   if (S.detect.found) {
     banner.hidden = true;
+    document.getElementById('btn-install-loopx').hidden = true;
     // Persist the working prefix — and heal a stale one: detect probes the
     // persisted prefix first, so if the winner differs, the persisted one is
     // broken (e.g. venv removed) and every poll would fail while the banner
@@ -1956,12 +1965,43 @@ async function detect() {
     return true;
   }
   banner.hidden = false;
+  document.getElementById('btn-install-loopx').hidden = false;
   const detail = document.getElementById('probe-detail');
   detail.hidden = false;
   detail.textContent = (S.detect.probes || [])
     .map((p) => `${(p.argvPrefix || []).join(' ')} → ${p.ok ? p.version : p.error || 'failed'}`)
     .join('\n');
   return false;
+}
+
+// One-click bootstrap: stream pip install progress into the banner, then
+// re-detect and reload goals.
+app.on('worker:installLoopx:progress', (d) => {
+  const el = document.getElementById('install-progress');
+  if (!el) return;
+  el.hidden = false;
+  el.textContent += `${d && d.line ? d.line : ''}\n`;
+  el.scrollTop = el.scrollHeight;
+});
+
+async function runInstallLoopx() {
+  const btn = document.getElementById('btn-install-loopx');
+  const progress = document.getElementById('install-progress');
+  btn.disabled = true;
+  btn.textContent = t('installingLoopx');
+  progress.hidden = false;
+  progress.textContent = '';
+  try {
+    const res = await app.call('loopx.installLoopx', {});
+    if (!res.ok) throw new Error(res.error || 'install failed');
+    progress.textContent += `\n${t('installDone')}\n`;
+    if (await detect()) await refreshGoals();
+  } catch (err) {
+    progress.textContent += `\n${t('installFailed')}: ${err.message || err}\n`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t('installLoopxBtn');
+  }
 }
 
 async function refreshGoals() {
@@ -2014,6 +2054,7 @@ document.getElementById('btn-refresh').addEventListener('click', refreshGoals);
 document.getElementById('btn-retry-detect').addEventListener('click', async () => {
   if (await detect()) refreshGoals();
 });
+document.getElementById('btn-install-loopx').addEventListener('click', runInstallLoopx);
 
 document.getElementById('btn-copy-raw').addEventListener('click', async (e) => {
   const text = document.getElementById('raw-body').textContent;

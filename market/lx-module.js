@@ -479,6 +479,16 @@
         : { found: false, argvPrefix: null, version: null, probes };
     },
 
+    async 'loopx.installLoopx'() {
+      // The marketplace shell allowlist forbids interpreters (pip/python),
+      // so the one-click install cannot run here. The banner command must be
+      // executed in the user's own terminal.
+      return {
+        ok: false,
+        error: 'market sandbox forbids pip — run: pip install git+https://github.com/huangruiteng/loopx.git in your own terminal',
+      };
+    },
+
     async 'loopx.doctor'({ projectDir = null } = {}) {
       const { code, payload, stderr } = await runLoopx(projectDir, ['doctor'], 60000);
       return { ok: code === 0, payload, stderr };
