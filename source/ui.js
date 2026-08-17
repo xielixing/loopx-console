@@ -367,6 +367,26 @@ function newGoalState(goalId, info) {
 }
 
 // ── logging ───────────────────────────────────────────────
+// ── debug trace (UI side) ──────────────────────────────────
+// Written to <appdata>/debug-ui.log through the host fs bridge so host logs
+// are not required for diagnosis.
+const DEBUG_UI = [];
+let DEBUG_UI_BUSY = false;
+async function dbgUi(tag, detail) {
+  const line = `${new Date().toISOString()} ${tag} ${detail || ''}`;
+  DEBUG_UI.push(line);
+  if (DEBUG_UI.length > 200) DEBUG_UI.shift();
+  if (DEBUG_UI_BUSY || typeof app === 'undefined' || !app.appDataDir || !app.fs) return;
+  DEBUG_UI_BUSY = true;
+  try {
+    await app.fs.writeFile(`${app.appDataDir}/debug-ui.log`, DEBUG_UI.join('\n'));
+  } catch (_) {
+    // The trace must never break the flow.
+  } finally {
+    DEBUG_UI_BUSY = false;
+  }
+}
+
 function log(msg, isErr = false) {
   const time = new Date().toTimeString().slice(0, 8);
   S.logs.push({ time, msg, isErr });
@@ -1979,10 +1999,12 @@ async function createTaskFromInput() {
   const input = document.getElementById('task-input');
   const objective = input.value.trim();
   if (!objective) { input.focus(); return; }
+  dbgUi('createTask:start', `text=${objective.slice(0, 120)}`);
   // Issue-fix is the one polished scenario; free-form goals wait until they
   // can bind to specific loopx capabilities.
   if (!taskInputKind(objective)) {
     const bad = firstUnsupportedGithubUrl(objective);
+    dbgUi('createTask:unsupported', bad || 'no-supported-link');
     setTaskFeedback(bad ? t('taskUnsupportedPath', bad) : t('taskGoalUnsupported'), 'error');
     return;
   }
@@ -1991,13 +2013,16 @@ async function createTaskFromInput() {
     return;
   }
   setComposerBusy(true, t('taskResolving'));
+  dbgUi('createTask:callingResolve', `projectDir=${S.config.projectDir || '(none)'}`);
   let resolved;
   try {
     resolved = await app.call('loopx.resolveIntake', {
       projectDir: S.config.projectDir,
       objective,
     });
+    dbgUi('createTask:resolved', JSON.stringify({ ok: resolved.ok, code: resolved.code, kind: resolved.kind, autoClone: resolved.autoClone, issues: resolved.issues && resolved.issues.length }));
   } catch (err) {
+    dbgUi('createTask:resolveError', String(err && err.message || err));
     setComposerBusy(false, '');
     setTaskFeedback(String(err.message || err), 'error');
     return;
@@ -2119,9 +2144,14 @@ window.addEventListener('beforeunload', () => {
 
 // ── boot ──────────────────────────────────────────────────
 (async function boot() {
+  dbgUi('boot:start', `locale=${app && app.locale}`);
   await loadConfig();
+  dbgUi('boot:configLoaded', JSON.stringify({ projectDir: S.config.projectDir || null, argvPrefix: S.config.argvPrefix }));
   applyI18n();
   startCountdownLoop();
   updateHeaderStatus();
-  if (await detect()) await refreshGoals();
+  const detected = await detect();
+  dbgUi('boot:detected', String(detected));
+  if (detected) await refreshGoals();
+  dbgUi('boot:done', `goals=${S.goals.size}`);
 })();

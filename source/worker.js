@@ -28,6 +28,19 @@ function candidatePrefixes(srcDir) {
 
 const DEFAULT_TIMEOUT_MS = 180000;
 
+// ── debug trace (worker side) ─────────────────────────────────
+// Written to <appdir>/debug-worker.log so host logs are not required.
+const DEBUG_WORKER = [];
+function dbgWorker(tag, detail) {
+  const line = `${new Date().toISOString()} ${tag} ${detail || ''}`;
+  DEBUG_WORKER.push(line);
+  if (DEBUG_WORKER.length > 200) DEBUG_WORKER.shift();
+  try {
+    fs.writeFileSync(path.join(process.cwd(), 'debug-worker.log'), `${DEBUG_WORKER.join('\n')}\n`);
+  } catch (_) {}
+}
+dbgWorker('boot', `pid=${process.pid} runtime=${process.version}`);
+
 let cachedPrefix = null; // { argv, env }
 
 // loopx is a Python CLI; on zh-CN Windows its stdout defaults to GBK, which
@@ -648,6 +661,7 @@ async function fetchOpenIssues(repo) {
 
 module.exports = {
   async 'loopx.detect'({ argvPrefix = null, srcDir = null } = {}) {
+    dbgWorker('detect:start', `argvPrefix=${JSON.stringify(argvPrefix)} srcDir=${srcDir || ''}`);
     return detectLoopx(argvPrefix, srcDir);
   },
 
@@ -688,7 +702,9 @@ module.exports = {
   async 'loopx.resolveIntake'({ projectDir = null, objective } = {}) {
     const text = String(objective || '').trim();
     if (!text) throw new Error('loopx.resolveIntake: objective is required');
+    dbgWorker('resolveIntake:start', `text=${text.slice(0, 120)}`);
     const { refs, unsupported } = githubReferences(text);
+    dbgWorker('resolveIntake:refs', `refs=${JSON.stringify(refs.map((r) => r.kind + ':' + r.url))} unsupported=${unsupported.length}`);
     if (unsupported.length) {
       return {
         ok: false,
@@ -737,8 +753,11 @@ module.exports = {
     if (requestedRepos.length === 1 && !projectDir) {
       let exists = true;
       try {
+        dbgWorker('resolveIntake:repoExists:start', requestedRepos[0]);
         exists = await repoExistsOnGithub(requestedRepos[0]);
+        dbgWorker('resolveIntake:repoExists:done', `${requestedRepos[0]} exists=${exists}`);
       } catch (err) {
+        dbgWorker('resolveIntake:repoExists:error', `${err.message}`);
         return {
           ok: false,
           code: 'repository_lookup_failed',
@@ -768,7 +787,9 @@ module.exports = {
       : (repoRefs.length && !issueRefs.length ? repoRefs[0].repo : null);
     if (expandRepo) {
       kind = 'issues-list';
+      dbgWorker('resolveIntake:fetchIssues:start', expandRepo);
       const fetched = await fetchOpenIssues(expandRepo);
+      dbgWorker('resolveIntake:fetchIssues:done', `count=${fetched.issues.length} truncated=${fetched.truncated}`);
       truncated = fetched.truncated;
       const seen = new Set(issues.map((issue) => issue.url));
       for (const issue of fetched.issues) {
@@ -830,6 +851,7 @@ module.exports = {
   } = {}) {
     const text = String(objective || '').trim();
     if (!projectDir) throw new Error('loopx.taskIntake: a local project directory is required');
+    dbgWorker('taskIntake:start', `mode=${mode} autoClone=${autoClone} projectDir=${projectDir || '(none)'} text=${text.slice(0, 80)}`);
     if (!text) throw new Error('loopx.taskIntake: objective is required');
     if (text.length > 4000) throw new Error('loopx.taskIntake: objective is too long (max 4000 characters)');
     if (!agentId) throw new Error('loopx.taskIntake: agentId is required');
@@ -916,7 +938,9 @@ module.exports = {
         if (!workingDir && autoClone && requestedRepos.length === 1) {
           emit('clone', { detail: 'start' });
           failedStage = 'clone';
+          dbgWorker('taskIntake:clone:start', requestedRepos[0]);
           workingDir = await cloneRepository(requestedRepos[0], (extra) => emit('clone', extra));
+          dbgWorker('taskIntake:clone:done', workingDir);
         }
         // issues-list / repository URL reaching intake without a UI-confirmed
         // selection (standalone callers): expand it here.
