@@ -2846,6 +2846,7 @@ async function executeRunOnce(g) {
       agentId: g.agentId,
     });
     if (!composed.ok) throw new Error(composed.error || 'turn prompt failed');
+    dbgUi('turn:promptReady', `chars=${composed.prompt.length}`);
     // The log shows what was sent to the agent — collapsed, expandable.
     recordGoalActivity(g, t('activitySentPrompt', composed.prompt.length), false, 'prompt', composed.prompt);
     const run = await app.agent.run(composed.prompt, {
@@ -2854,6 +2855,7 @@ async function executeRunOnce(g) {
       enableTools: true,
       model: modelForGoal(g.goalId),
     });
+    dbgUi('turn:agentStarted', `session=${run.sessionId} turn=${run.turnId}`);
     S.agentSessionByGoal.set(g.goalId, run.sessionId);
     agentRuns.set(g.goalId, { sessionId: run.sessionId, turnId: run.turnId, startedAt, tick });
   } catch (err) {
@@ -3453,6 +3455,7 @@ function startTaskIntake(pending, guideGoalId) {
   S.intakeDraft = { objective, stage: guideGoalId ? t('taskCreating') : t('stageBootstrap') };
   setComposerBusy(true, t('taskCreating'));
   renderAllGoals(true);
+  dbgUi('intake:call', `mode=${guideGoalId ? 'guide' : 'new'} goalId=${guideGoalId || '(new)'} issues=${issues.length} projectDir=${projectDir || '(none)'}`);
   app.call('loopx.taskIntake', {
     argvPrefix: S.config.argvPrefix,
     srcDir: S.config.srcDir || null,
@@ -3464,6 +3467,7 @@ function startTaskIntake(pending, guideGoalId) {
     autoClone: !guideGoalId && !projectDir && Boolean(resolved.autoClone),
     issues: issues.length ? issues : null,
   }).then((res) => {
+    dbgUi('intake:accepted', `started=${Boolean(res && res.started)}`);
     if (res && res.ok === false) {
       // Synchronous refusal (repo checks) — no done event will follow.
       S.intakeDraft = null;
@@ -3478,6 +3482,7 @@ function startTaskIntake(pending, guideGoalId) {
     if (!res || !res.started) throw new Error('task intake did not start');
     // progress + completion arrive on worker:taskIntake:* events
   }).catch((err) => {
+    dbgUi('intake:rejected', String(err && err.message || err));
     S.intakeDraft = null;
     requestRender(true);
     setComposerBusy(false, '');

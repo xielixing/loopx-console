@@ -1342,6 +1342,8 @@ module.exports = {
   },
 
   async 'loopx.listGoals'({ argvPrefix = null, projectDir = null, projectDirs = null } = {}) {
+    const t0 = Date.now();
+    dbgWorker('listGoals:start', `projectDir=${projectDir || '(none)'} projectDirs=${Array.isArray(projectDirs) ? projectDirs.length : 0}`);
     // Direction C: goals may live in several registries — the user's global
     // registry, one per cloned/selected project directory, and (since the
     // clone cache is stable across MiniApp re-imports) any repo in the cache
@@ -1438,6 +1440,7 @@ module.exports = {
     const registryPath = targets.length === 1
       ? (targets[0] || resolveRegistryPath(null))
       : (registryPaths[0] || null);
+    dbgWorker('listGoals:done', `ms=${Date.now() - t0} goals=${goals.length} lastOk=${lastOk}`);
     return { ok: lastOk, registryPath, goals, raw: { groups } };
   },
 
@@ -1451,6 +1454,8 @@ module.exports = {
 
   async 'loopx.shouldRun'({ argvPrefix = null, projectDir = null, goalId, agentId } = {}) {
     if (!goalId) throw new Error('loopx.shouldRun: goalId is required');
+    const t0 = Date.now();
+    dbgWorker('shouldRun:start', `goalId=${goalId} projectDir=${projectDir || '(none)'}`);
     const args = [
       'quota', 'should-run',
       '--goal-id', goalId,
@@ -1460,6 +1465,7 @@ module.exports = {
     ];
     if (agentId) args.push('--agent-id', agentId);
     const { result, payload } = await runJson(argvPrefix, projectDir, args);
+    dbgWorker('shouldRun:done', `ms=${Date.now() - t0} code=${result.code} hasPayload=${Boolean(payload)}`);
     if (!payload) {
       return { ok: false, error: result.stderr.trim() || 'loopx returned no JSON payload', raw: null };
     }
