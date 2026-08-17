@@ -41,17 +41,23 @@ const I18N = {
     agent: 'Agent',
     agentFree: '手动输入 agent id…',
     runOnce: '执行一次',
-    cancelRun: '取消运行',
-    resume: '已暂停 · 点击恢复',
-    stopTask: '停止任务',
-    stopTaskHint: '停止该任务：取消本次运行、关闭心跳监控与自动执行',
-    resumeTask: '恢复任务',
-    taskStopped: (id) => `任务 ${id} 已停止：心跳与自动执行已关闭`,
-    taskResumed: (id) => `任务 ${id} 已恢复：心跳与自动执行已重新开启`,
-    stopConfirmTitle: '停止这个任务？',
-    stopConfirmText: (id) => `将取消「${id}」正在进行的运行，并关闭它的心跳监控与自动执行。任务会移入「已停表」，随时可以恢复。`,
-    confirmStop: '确认停止',
+    resumeTask: '继续任务',
+    resumeTaskHint: '继续该任务：恢复心跳监控与自动执行',
+    stopTask: '中止任务',
+    stopTaskHint: '中止该任务：取消本次运行、关闭心跳监控与自动执行',
+    deleteTask: '删除任务',
+    deleteTaskHint: '删除该任务：归档运行记录并移除注册表条目（注册表会先备份）',
+    taskStopped: (id) => `任务 ${id} 已中止：心跳与自动执行已关闭`,
+    taskResumed: (id) => `任务 ${id} 已继续：心跳与自动执行已重新开启`,
+    taskDeleted: (id) => `任务 ${id} 已删除`,
+    deleteTaskFailed: '删除失败',
+    stopConfirmTitle: '中止这个任务？',
+    stopConfirmText: (id) => `将取消「${id}」正在进行的运行，并关闭它的心跳监控与自动执行。任务会移入「已停表」，随时可以继续。`,
+    confirmStop: '确认中止',
     stoppedState: '已停止 · 心跳与自动执行已关闭',
+    deleteConfirmTitle: '删除这个任务？',
+    deleteConfirmText: (id) => `将归档「${id}」的运行记录并从注册表移除（注册表文件会先备份）。看板将不再显示该任务。`,
+    confirmDelete: '确认删除',
     nextPoll: (t) => `下次轮询 ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `间隔 ${iv}m（基准 ${base}m ×${mult}^${n}，上限 ${cap}m）`,
     intervalPlain: (iv) => `间隔 ${iv}m`,
@@ -205,17 +211,23 @@ const I18N = {
     agent: 'Agent',
     agentFree: 'Type agent id…',
     runOnce: 'Run once',
-    cancelRun: 'Cancel run',
-    resume: 'Paused · click to resume',
-    stopTask: 'Stop task',
-    stopTaskHint: 'Stop this task: cancel the current run, disable heartbeat and auto-run',
     resumeTask: 'Resume task',
-    taskStopped: (id) => `Task ${id} stopped: heartbeat and auto-run disabled`,
+    resumeTaskHint: 'Resume this task: restore heartbeat and auto-run',
+    stopTask: 'Abort task',
+    stopTaskHint: 'Abort this task: cancel the current run, disable heartbeat and auto-run',
+    deleteTask: 'Delete task',
+    deleteTaskHint: 'Delete this task: archive its runtime and remove the registry entry (the registry is backed up first)',
+    taskStopped: (id) => `Task ${id} aborted: heartbeat and auto-run disabled`,
     taskResumed: (id) => `Task ${id} resumed: heartbeat and auto-run re-enabled`,
-    stopConfirmTitle: 'Stop this task?',
+    taskDeleted: (id) => `Task ${id} deleted`,
+    deleteTaskFailed: 'Delete failed',
+    stopConfirmTitle: 'Abort this task?',
     stopConfirmText: (id) => `This cancels the running turn of "${id}", switches off its heartbeat monitoring and auto-run. The task moves to "Stopped" and can be resumed anytime.`,
-    confirmStop: 'Stop it',
+    confirmStop: 'Abort it',
     stoppedState: 'Stopped · heartbeat and auto-run are off',
+    deleteConfirmTitle: 'Delete this task?',
+    deleteConfirmText: (id) => `This archives the runtime records of "${id}" and removes it from the registry (the registry file is backed up first). The task will no longer appear on the board.`,
+    confirmDelete: 'Delete it',
     nextPoll: (t) => `next poll in ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `every ${iv}m (base ${base}m ×${mult}^${n}, cap ${cap}m)`,
     intervalPlain: (iv) => `every ${iv}m`,
@@ -1555,36 +1567,30 @@ function renderGoalDetails(g) {
 
   const actions = document.createElement('div');
   actions.className = 'detail__actions';
-  if (g.stopped) {
-    const resume = document.createElement('button');
-    resume.type = 'button';
-    resume.className = 'btn btn--primary';
-    resume.textContent = t('resume');
-    resume.onclick = () => pollNow(g);
-    actions.appendChild(resume);
-  }
-  if (g.userStopped) {
-    const resumeTaskBtn = document.createElement('button');
-    resumeTaskBtn.type = 'button';
-    resumeTaskBtn.className = 'btn btn--primary';
-    resumeTaskBtn.textContent = t('resumeTask');
-    resumeTaskBtn.onclick = () => resumeGoalTask(g);
-    actions.appendChild(resumeTaskBtn);
+  if (g.userStopped || g.stopped) {
+    const resumeBtn = document.createElement('button');
+    resumeBtn.type = 'button';
+    resumeBtn.className = 'btn btn--primary';
+    resumeBtn.textContent = t('resumeTask');
+    resumeBtn.title = t('resumeTaskHint');
+    resumeBtn.onclick = () => g.userStopped ? resumeGoalTask(g) : pollNow(g);
+    actions.appendChild(resumeBtn);
   } else {
-    const run = document.createElement('button');
-    run.type = 'button';
-    run.className = g.running ? 'btn btn--danger' : 'btn btn--primary';
-    run.textContent = g.running ? t('cancelRun') : t('runOnce');
-    run.onclick = () => g.running ? cancelGoalRun(g, run) : executeRunOnce(g);
-    actions.appendChild(run);
-    const stop = document.createElement('button');
-    stop.type = 'button';
-    stop.className = 'btn btn--danger';
-    stop.textContent = t('stopTask');
-    stop.title = t('stopTaskHint');
-    stop.onclick = () => openStopConfirm(g);
-    actions.appendChild(stop);
+    const abort = document.createElement('button');
+    abort.type = 'button';
+    abort.className = 'btn btn--danger';
+    abort.textContent = t('stopTask');
+    abort.title = t('stopTaskHint');
+    abort.onclick = () => openStopConfirm(g);
+    actions.appendChild(abort);
   }
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'btn btn--danger';
+  del.textContent = t('deleteTask');
+  del.title = t('deleteTaskHint');
+  del.onclick = () => openDeleteConfirm(g);
+  actions.appendChild(del);
   body.appendChild(actions);
 }
 
@@ -1609,12 +1615,58 @@ function openStopConfirm(g) {
   const dlg = document.getElementById('dlg-stop');
   document.getElementById('stop-title').textContent = t('stopConfirmTitle');
   document.getElementById('stop-text').textContent = t('stopConfirmText', g.goalId);
+  dlg.querySelector('button[value="confirm"]').textContent = t('confirmStop');
   dlg.returnValue = 'cancel';
   dlg.onclose = () => {
     if (dlg.returnValue !== 'confirm') return;
     stopGoalTask(g);
   };
   dlg.showModal();
+}
+
+function openDeleteConfirm(g) {
+  const dlg = document.getElementById('dlg-stop');
+  document.getElementById('stop-title').textContent = t('deleteConfirmTitle');
+  document.getElementById('stop-text').textContent = t('deleteConfirmText', g.goalId);
+  dlg.querySelector('button[value="confirm"]').textContent = t('confirmDelete');
+  dlg.returnValue = 'cancel';
+  dlg.onclose = () => {
+    if (dlg.returnValue !== 'confirm') return;
+    deleteGoalTask(g);
+  };
+  dlg.showModal();
+}
+
+// Delete a task: archive its runtime and drop it from the registry (the
+// worker keeps a backup of the registry file). Irreversible from the board.
+async function deleteGoalTask(g) {
+  try {
+    const res = await app.call('loopx.deleteGoal', {
+      argvPrefix: S.config.argvPrefix,
+      srcDir: S.config.srcDir || null,
+      projectDir: goalProjectDir(g.goalId),
+      goalId: g.goalId,
+    });
+    if (!res.ok) throw new Error(res.error || 'delete failed');
+    log(`[${g.goalId}] ${t('taskDeleted', g.goalId)}`);
+    if (res.warning) log(`[${g.goalId}] ${res.warning}`, true);
+    for (const map of [
+      S.config.ownedGoals, S.config.monitorByGoal, S.config.agentByGoal,
+      S.config.autoRunByGoal, S.config.modelByGoal, S.config.projectByGoal,
+      S.config.stoppedByGoal, S.config.autoRunBeforeStop,
+    ]) {
+      if (map) delete map[g.goalId];
+    }
+    await saveConfig();
+    S.activeGoalId = null;
+    document.getElementById('goal-detail-panel').hidden = true;
+    await refreshGoals();
+    renderAllGoals(true);
+  } catch (err) {
+    const message = String(err && err.message || err);
+    log(`[${g.goalId}] delete failed: ${message}`, true);
+    recordGoalActivity(g, `${t('deleteTaskFailed')}: ${message}`, true);
+  }
 }
 
 function openGoalDetails(g) {
@@ -2012,28 +2064,53 @@ function flushAgentText(g) {
   g.agentTextBuffer = '';
 }
 
-function toolBrief(e, te) {
-  const rawParams = te.params ?? e.params;
-  if (rawParams == null) return '';
+// Tool-event params stream in partial JSON fragments. Accumulate them per
+// tool call and parse the running buffer; never surface raw fragments (they
+// slice one command into garbage like "bfx" / "-d" / "eepseek-h").
+const toolParamsBuf = new Map(); // toolId -> accumulated raw params text
+const toolLinesRecorded = new Map(); // toolId -> true (one line per tool call)
+
+function toolBriefFromText(text) {
+  const t = String(text || '').trim();
+  if (!t) return '';
   try {
-    const p = typeof rawParams === 'string' ? JSON.parse(rawParams) : rawParams;
+    const p = JSON.parse(t);
     if (!p || typeof p !== 'object') return '';
-    if (Array.isArray(p)) {
-      return p.map(String).join(' ').slice(0, 120);
-    }
+    if (Array.isArray(p)) return p.map(String).join(' ').slice(0, 120);
     const brief = p.command || p.cmd || p.file_path || p.filePath || p.path
-      || p.query || p.pattern || p.url || p.target_file || '';
+      || p.query || p.pattern || p.url || p.target_file
+      || (Array.isArray(p.args) ? p.args.map(String).join(' ') : '')
+      || (Array.isArray(p.arguments) ? p.arguments.map(String).join(' ') : '')
+      || '';
     return String(brief).slice(0, 120);
   } catch (_) {
-    // The start-phase params buffer is often a partial JSON string. Fall back
-    // to regex so ExecCommand lines still show WHICH command ran instead of
-    // collapsing every distinct command into one bare counter.
-    const text = String(rawParams);
-    const cmdMatch = text.match(/"(?:cmd|command)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    if (cmdMatch) return cmdMatch[1].replace(/\\(.)/g, '$1').slice(0, 120);
-    const arrMatch = text.match(/^\s*\["((?:[^"\\]|\\.)*)"/);
-    if (arrMatch) return arrMatch[1].replace(/\\(.)/g, '$1').slice(0, 120);
-    return text.slice(0, 80);
+    // Partial buffer: the value may not have its closing quote yet — allow
+    // an unterminated string instead of falling back to raw fragments.
+    const cmdMatch = t.match(/"(?:cmd|command)"\s*:\s*"([^"]*)/);
+    if (cmdMatch && cmdMatch[1]) return cmdMatch[1].replace(/\\(.)/g, '$1').slice(0, 120);
+    const argsMatch = t.match(/"(?:args|arguments)"\s*:\s*\[\s*"([^"]*)/);
+    if (argsMatch && argsMatch[1]) return argsMatch[1].replace(/\\(.)/g, '$1').slice(0, 120);
+    return '';
+  }
+}
+
+function toolBrief(e, te) {
+  const raw = te.params ?? e.params;
+  if (raw == null) return '';
+  const rawText = typeof raw === 'string' ? raw : JSON.stringify(raw);
+  if (!te.tool_id) return toolBriefFromText(rawText);
+  const buf = (toolParamsBuf.get(te.tool_id) || '') + rawText;
+  if (buf.length > 6000) toolParamsBuf.set(te.tool_id, buf.slice(-3000));
+  else toolParamsBuf.set(te.tool_id, buf);
+  return toolBriefFromText(buf);
+}
+
+function pruneToolMaps() {
+  if (toolLinesRecorded.size <= 300) return;
+  const keys = [...toolLinesRecorded.keys()].slice(0, 150);
+  for (const key of keys) {
+    toolLinesRecorded.delete(key);
+    toolParamsBuf.delete(key);
   }
 }
 
@@ -2047,10 +2124,22 @@ app.agent.onEvent((e) => {
     const name = te.effectiveToolName || te.effective_tool_name
       || te.toolName || te.tool_name || e.toolName || e.tool_name || e.name;
     const phase = te.event_type || te.phase || e.phase;
-    if (name && phase !== 'Completed' && phase !== 'completed'
-        && !QUIET_AGENT_TOOLS.has(String(name).toLowerCase())) {
+    const done = phase === 'Completed' || phase === 'completed';
+    if (name && !QUIET_AGENT_TOOLS.has(String(name).toLowerCase())) {
       const brief = toolBrief(e, te);
-      recordGoalActivity(g, brief ? `${name}：${brief}` : String(name));
+      if (te.tool_id) {
+        // One line per tool call. If params have not streamed enough yet to
+        // name the command, wait — a bare name with garbage fragments is
+        // worse than a line that arrives one event later. A completed call
+        // with nothing parseable falls back to the bare name.
+        if (toolLinesRecorded.has(te.tool_id)) return;
+        if (!brief && !done) return;
+        toolLinesRecorded.set(te.tool_id, true);
+        pruneToolMaps();
+        recordGoalActivity(g, brief ? `${name}：${brief}` : String(name));
+      } else {
+        recordGoalActivity(g, brief ? `${name}：${brief}` : String(name));
+      }
     }
   } else if (e.sourceEvent === 'text-chunk') {
     // contentType 'thinking' is the agent's private reasoning — skip it.

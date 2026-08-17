@@ -906,6 +906,58 @@ module.exports = {
 
   // List a goal's todos (zero-write projection). Used to surface open
   // user-lane gates on the board.
+  // Delete a task entirely: archive its runtime directory via loopx
+  // (--allow-registered --execute) and remove the registry entry, keeping a
+  // backup of the registry file before rewriting it.
+  async 'loopx.deleteGoal'({ argvPrefix = null, srcDir = null, projectDir = null, goalId } = {}) {
+    if (!goalId) throw new Error('loopx.deleteGoal: goalId is required');
+    dbgWorker('deleteGoal:start', `goalId=${goalId} projectDir=${projectDir || '(global)'}`);
+    const archive = await runJson(argvPrefix, projectDir, [
+      'archive-runtime', '--goal-id', goalId, '--allow-registered', '--execute',
+    ], { srcDir, timeoutMs: 120000 });
+    const archived = archive.result.code === 0 && archive.payload?.ok !== false;
+    if (!archived) {
+      return {
+        ok: false,
+        goalId,
+        archived: false,
+        registryRemoved: false,
+        error: archive.payload?.error || archive.result.stderr.trim() || 'archive-runtime failed',
+      };
+    }
+    // Registry surgery: drop the goal entry, keep a timestamped backup.
+    const registryPath = projectDir
+      ? path.join(projectDir, '.loopx', 'registry.json')
+      : resolveRegistryPath(null);
+    let registryRemoved = false;
+    try {
+      const raw = fs.readFileSync(registryPath, 'utf8');
+      const registry = JSON.parse(raw);
+      if (Array.isArray(registry.goals)) {
+        const before = registry.goals.length;
+        registry.goals = registry.goals.filter((goal) => (goal.goal_id || goal.id) !== goalId);
+        if (registry.goals.length < before) {
+          const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+          fs.copyFileSync(registryPath, `${registryPath}.del-bak-${stamp}`);
+          registry.updated_at = new Date().toISOString();
+          fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+          registryRemoved = true;
+        }
+      }
+    } catch (err) {
+      dbgWorker('deleteGoal:registryError', `${err.message}`);
+    }
+    dbgWorker('deleteGoal:done', `archived=${archived} registryRemoved=${registryRemoved}`);
+    return {
+      ok: true,
+      goalId,
+      archived,
+      registryRemoved,
+      archivePath: archive.payload?.archive_path ?? null,
+      warning: registryRemoved ? null : 'runtime archived, but the registry entry could not be removed',
+    };
+  },
+
   async 'loopx.listTodos'({ argvPrefix = null, projectDir = null, goalId, role = null, status = null } = {}) {
     if (!goalId) throw new Error('loopx.listTodos: goalId is required');
     const { result, payload } = await runJson(argvPrefix, projectDir, ['todo', 'list', '--goal-id', goalId]);

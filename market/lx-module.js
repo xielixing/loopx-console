@@ -604,6 +604,50 @@
       };
     },
 
+    async 'loopx.deleteGoal'({ projectDir = null, goalId } = {}) {
+      if (!goalId) throw new Error('loopx.deleteGoal: goalId is required');
+      const archive = await runLoopx(projectDir, [
+        'archive-runtime', '--goal-id', goalId, '--allow-registered', '--execute',
+      ], 120000);
+      const archived = archive.code === 0 && archive.payload?.ok !== false;
+      if (!archived) {
+        return {
+          ok: false,
+          goalId,
+          archived: false,
+          registryRemoved: false,
+          error: archive.payload?.error || archive.stderr.trim() || 'archive-runtime failed',
+        };
+      }
+      // Best-effort registry entry removal. The market sandbox allows fs
+      // writes only under {appdata}, so cached-clone registries under ~
+      // usually cannot be rewritten — degrade honestly.
+      let registryRemoved = false;
+      try {
+        const registryPath = projectDir
+          ? joinP(projectDir, '.loopx', 'registry.json')
+          : globalRegistryPath;
+        const registry = JSON.parse(await readText(registryPath));
+        if (Array.isArray(registry.goals)) {
+          const before = registry.goals.length;
+          registry.goals = registry.goals.filter((goal) => (goal.goal_id || goal.id) !== goalId);
+          if (registry.goals.length < before) {
+            registry.updated_at = new Date().toISOString();
+            await app.fs.writeFile(registryPath, JSON.stringify(registry, null, 2));
+            registryRemoved = true;
+          }
+        }
+      } catch (_) {}
+      return {
+        ok: true,
+        goalId,
+        archived,
+        registryRemoved,
+        archivePath: archive.payload?.archive_path ?? null,
+        warning: registryRemoved ? null : 'runtime archived, but the registry entry could not be removed',
+      };
+    },
+
     async 'loopx.listTodos'({ projectDir = null, goalId, role = null, status = null } = {}) {
       if (!goalId) throw new Error('loopx.listTodos: goalId is required');
       const { code, payload, stderr } = await runLoopx(projectDir, ['todo', 'list', '--goal-id', goalId], 60000);
