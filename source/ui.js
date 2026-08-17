@@ -2070,13 +2070,18 @@ function flushAgentText(g) {
 const toolParamsBuf = new Map(); // toolId -> accumulated raw params text
 const toolLinesRecorded = new Map(); // toolId -> true (one line per tool call)
 
-function toolBriefFromText(text) {
+function toolBriefFromText(text, final) {
   const t = String(text || '').trim();
   if (!t) return '';
   try {
     const p = JSON.parse(t);
     if (!p || typeof p !== 'object') return '';
-    if (Array.isArray(p)) return p.map(String).join(' ').slice(0, 120);
+    if (Array.isArray(p)) {
+      // A single-element array mid-stream is just the first argv fragment —
+      // wait for the rest unless this is the final event.
+      if (!final && p.length < 2) return '';
+      return p.map(String).join(' ').slice(0, 120);
+    }
     const brief = p.command || p.cmd || p.file_path || p.filePath || p.path
       || p.query || p.pattern || p.url || p.target_file
       || (Array.isArray(p.args) ? p.args.map(String).join(' ') : '')
@@ -2084,8 +2089,9 @@ function toolBriefFromText(text) {
       || '';
     return String(brief).slice(0, 120);
   } catch (_) {
-    // Partial buffer: the value may not have its closing quote yet — allow
-    // an unterminated string instead of falling back to raw fragments.
+    // Partial buffer. Never guess mid-stream (that produced garbage like
+    // "loop" or "bfx"); only make a best effort on the final event.
+    if (!final) return '';
     const cmdMatch = t.match(/"(?:cmd|command)"\s*:\s*"([^"]*)/);
     if (cmdMatch && cmdMatch[1]) return cmdMatch[1].replace(/\\(.)/g, '$1').slice(0, 120);
     const argsMatch = t.match(/"(?:args|arguments)"\s*:\s*\[\s*"([^"]*)/);
@@ -2094,15 +2100,15 @@ function toolBriefFromText(text) {
   }
 }
 
-function toolBrief(e, te) {
+function toolBrief(e, te, final) {
   const raw = te.params ?? e.params;
   if (raw == null) return '';
   const rawText = typeof raw === 'string' ? raw : JSON.stringify(raw);
-  if (!te.tool_id) return toolBriefFromText(rawText);
+  if (!te.tool_id) return toolBriefFromText(rawText, final);
   const buf = (toolParamsBuf.get(te.tool_id) || '') + rawText;
   if (buf.length > 6000) toolParamsBuf.set(te.tool_id, buf.slice(-3000));
   else toolParamsBuf.set(te.tool_id, buf);
-  return toolBriefFromText(buf);
+  return toolBriefFromText(buf, final);
 }
 
 function pruneToolMaps() {
@@ -2126,7 +2132,7 @@ app.agent.onEvent((e) => {
     const phase = te.event_type || te.phase || e.phase;
     const done = phase === 'Completed' || phase === 'completed';
     if (name && !QUIET_AGENT_TOOLS.has(String(name).toLowerCase())) {
-      const brief = toolBrief(e, te);
+      const brief = toolBrief(e, te, done);
       if (te.tool_id) {
         // One line per tool call. If params have not streamed enough yet to
         // name the command, wait — a bare name with garbage fragments is
