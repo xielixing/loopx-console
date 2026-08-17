@@ -6,9 +6,27 @@
   <title data-i18n="title">LoopX 控制台</title>
   <!-- Theme gate: the host injects appearance CSS variables asynchronously.
        Painting with the fallback palette first would flash dark→light (or
-       the reverse). ui.js releases visibility once the vars arrive (or on a
-       short deadline). -->
+       the reverse). This inline failsafe reveals the page once the vars
+       arrive (or on a deadline), independent of the main bundle. -->
   <style>html{visibility:hidden}</style>
+  <script>
+  (function () {
+    function reveal() { document.documentElement.style.visibility = 'visible'; }
+    var deadline = setTimeout(reveal, 600);
+    window.addEventListener('message', function (event) {
+      var data = event.data;
+      if (data && data.type === 'bitfun:event' && data.event === 'appearanceChange') {
+        clearTimeout(deadline);
+        reveal();
+      }
+    });
+    window.addEventListener('DOMContentLoaded', function () {
+      var bg = '';
+      try { bg = getComputedStyle(document.documentElement).getPropertyValue('--bitfun-bg'); } catch (e) {}
+      if (bg && bg.trim()) { clearTimeout(deadline); reveal(); }
+    });
+  })();
+  </script>
 </head>
 <body>
   <div id="app" class="lx">

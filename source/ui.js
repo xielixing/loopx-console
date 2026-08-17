@@ -14,22 +14,17 @@ let BOOT_RENDER_COUNT = 0;
 const bootMs = () => Math.round(performance.now() - BOOT_T0);
 const themeProbe = () => String(getComputedStyle(document.documentElement).getPropertyValue('--bitfun-bg')).trim() || '(none)';
 
-// Release the theme gate from index.html: the host injects appearance vars
-// asynchronously, so painting the fallback palette first would flash. If the
-// vars never arrive, a short deadline still reveals the app.
-(function themeGate() {
-  const release = () => { document.documentElement.style.visibility = ''; };
-  if (themeProbe() !== '(none)') {
-    release();
-  } else {
-    const timer = setTimeout(release, 400);
-    app.onAppearanceChange((payload) => {
-      dbgUi('theme:applied', `t=${bootMs()}ms mode=${payload && payload.mode}`);
-      clearTimeout(timer);
-      release();
-    });
-  }
-})();
+// Theme gate release (double failsafe for the inline script in index.html —
+// some compilers relocate inline scripts, so the main bundle guarantees the
+// page can never stay hidden): reveal when the host appearance vars are in,
+// when the appearanceChange event arrives, or on a deadline.
+const releaseThemeGate = () => { document.documentElement.style.visibility = 'visible'; };
+if (themeProbe() !== '(none)') releaseThemeGate();
+app.onAppearanceChange((payload) => {
+  dbgUi('theme:applied', `t=${bootMs()}ms mode=${payload && payload.mode}`);
+  releaseThemeGate();
+});
+setTimeout(releaseThemeGate, 800);
 
 const I18N = {
   'zh-CN': {
