@@ -1158,6 +1158,7 @@ const I18N = {
     confirmDelete: '确认删除',
     activityEmpty: '暂无日志',
     activityModelRound: '新一轮推理开始',
+    thinkLabel: '思考：',
     elapsedLabel: (t) => `已用时 ${t}`,
     nextPoll: (t) => `下次轮询 ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `间隔 ${iv}m（基准 ${base}m ×${mult}^${n}，上限 ${cap}m）`,
@@ -1311,6 +1312,7 @@ const I18N = {
     confirmDelete: 'Delete it',
     activityEmpty: 'No log yet',
     activityModelRound: 'New reasoning round started',
+    thinkLabel: 'Thinking: ',
     elapsedLabel: (t) => `elapsed ${t}`,
     nextPoll: (t) => `next poll in ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `every ${iv}m (base ${base}m ×${mult}^${n}, cap ${cap}m)`,
@@ -1981,7 +1983,7 @@ function isGated(g) {
 // surface the moment they run or need approval); terminal/stopped/error and
 // other-host goals collapse into the quiet "more" chips footer.
 const PRIMARY_GROUPS = ['review', 'active'];
-const ARCHIVE_GROUPS = ['done', 'paused', 'error'];
+const ARCHIVE_GROUPS = ['done'];
 const GROUP_I18N_KEY = {
   backlog: 'groupBacklog', active: 'groupActive', review: 'groupReview',
   done: 'groupDone', paused: 'groupPaused', error: 'groupError',
@@ -2231,13 +2233,16 @@ function buildGoalActions(g, column) {
   return box;
 }
 
-function buildRunItem(g) {
+function buildRunItem(g, parked = false) {
   const el = document.createElement('div');
-  el.className = 'run-item' + (S.activeGoalId === g.goalId ? ' is-selected' : '');
+  el.className = 'run-item' + (parked ? ' run-item--parked' : '')
+    + (S.activeGoalId === g.goalId ? ' is-selected' : '');
   el.setAttribute('aria-label', g.goalId);
   el.onclick = () => openGoalDetails(g);
   const dot = document.createElement('span');
-  dot.className = 'dot dot--active';
+  dot.className = parked
+    ? `dot dot--${g.errorCount > 0 ? 'error' : 'paused'}`
+    : 'dot dot--active';
   const meta = document.createElement('span');
   meta.className = 'run-item__meta';
   const id = document.createElement('span');
@@ -2659,9 +2664,19 @@ function renderAllGoals(force = false) {
     activeList.appendChild(none);
   }
   for (const g of activeGoals) activeList.appendChild(buildRunItem(g));
+  // Parked tasks (aborted / errored) stay in the directory rail, dimmed,
+  // so they never "vanish" into an unnoticed corner chip.
+  const parked = [...buckets.get('paused'), ...buckets.get('error')];
+  if (parked.length > 0) {
+    const divider = document.createElement('div');
+    divider.className = 'run-rail__divider';
+    divider.textContent = `${t('groupPaused')} · ${parked.length}`;
+    activeList.appendChild(divider);
+    for (const g of parked) activeList.appendChild(buildRunItem(g, true));
+  }
 
-  // Terminal/stopped/error goals and other-host goals hide behind quiet chips
-  // at the bottom of the review zone.
+  // Terminal goals and other-host goals hide behind quiet chips at the
+  // bottom of the review zone.
   const moreGroups = [];
   for (const key of ARCHIVE_GROUPS) {
     if (buckets.get(key).length > 0) moreGroups.push({ key, goals: buckets.get(key) });
@@ -2927,10 +2942,13 @@ const QUIET_AGENT_TOOLS = new Set([
 
 // The agent's streamed text is accumulated and cut into paragraph-sized
 // lines, so the log reads like the agent talking instead of token spam.
-function streamAgentText(g, text) {
+// Visible text and reasoning (think) both stream — the model's output is the
+// point of the log; thinking renders dimmed with a 思考： label.
+function streamAgentText(g, text, think = false) {
   if (!isLiveGoal(g) || !text) return;
   if (typeof g.agentTextBuffer !== 'string') g.agentTextBuffer = '';
   g.agentTextBuffer += text;
+  g.agentTextKind = think;
   const cut = (buf) => {
     const nl = buf.indexOf('\n');
     if (nl >= 0) return nl;
@@ -2940,14 +2958,16 @@ function streamAgentText(g, text) {
   while ((idx = cut(g.agentTextBuffer)) >= 0) {
     const segment = g.agentTextBuffer.slice(0, idx).trim();
     g.agentTextBuffer = g.agentTextBuffer.slice(idx + 1);
-    if (segment) recordGoalActivity(g, segment, false, 'agent');
+    if (segment) recordGoalActivity(g, think ? `${t('thinkLabel')} ${segment}` : segment, false, think ? 'think' : 'agent');
   }
 }
 
 function flushAgentText(g) {
   if (!isLiveGoal(g)) return;
+  const think = g.agentTextKind === true;
   if (typeof g.agentTextBuffer === 'string' && g.agentTextBuffer.trim()) {
-    recordGoalActivity(g, g.agentTextBuffer.trim(), false, 'agent');
+    const segment = g.agentTextBuffer.trim();
+    recordGoalActivity(g, think ? `${t('thinkLabel')} ${segment}` : segment, false, think ? 'think' : 'agent');
   }
   g.agentTextBuffer = '';
 }
@@ -3036,9 +3056,10 @@ app.agent.onEvent((e) => {
       }
     }
   } else if (e.sourceEvent === 'text-chunk') {
-    // contentType 'thinking' is the agent's private reasoning — skip it.
-    if (e.contentType !== 'thinking' && typeof e.text === 'string') {
-      streamAgentText(g, e.text);
+    // Stream the model's visible output AND its reasoning (dimmed) — the
+    // user wants to see what the model produces, not just its tools.
+    if (typeof e.text === 'string') {
+      streamAgentText(g, e.text, e.contentType === 'thinking');
     }
   } else if (e.sourceEvent === 'model-round-started') {
     // Each model reasoning round lands a line — the log keeps moving while

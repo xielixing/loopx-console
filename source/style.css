@@ -169,6 +169,10 @@ button, input, select { font: inherit; }
 .run-item .dot { margin-top: 4px; }
 .run-item--pending { border: 1px dashed var(--lx-border); }
 .run-item--pending .goal__activity-text { flex: 0 0 auto; max-width: 42%; color: var(--lx-ok); font-size: 10px; line-height: 1.35; text-align: right; }
+/* Parked (aborted/errored) tasks stay visible in the rail, dimmed. */
+.run-rail__divider { margin: 6px 2px 2px; padding: 6px 7px 2px; border-top: 1px dashed var(--lx-border); color: var(--lx-text-mute); font-size: 10px; text-transform: uppercase; }
+.run-item--parked { opacity: .62; }
+.run-item--parked:hover { opacity: 1; }
 /* Master-detail: the selected goal's info + live activity stream takes the
    remaining width beside the directory rail. */
 .detail-panel {
@@ -345,8 +349,9 @@ button, input, select { font: inherit; }
 .activity-stream__time { color: var(--lx-text-mute); }
 .activity-stream__line--err { color: var(--lx-error); }
 /* Agent streamed text reads like speech; the sent instructions are an
-   expandable block. */
+   expandable block. Reasoning streams too, dimmed and italic. */
 .activity-stream__line--agent .activity-stream__text { color: var(--lx-text); }
+.activity-stream__line--think .activity-stream__text { color: var(--lx-text-mute); font-style: italic; }
 .activity-prompt { grid-column: 1 / -1; }
 .activity-prompt summary { cursor: pointer; color: var(--lx-accent); }
 .activity-prompt summary:hover { text-decoration: underline; }
