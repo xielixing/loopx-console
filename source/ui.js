@@ -37,9 +37,6 @@ const I18N = {
     logTitle: '心跳与执行日志',
     logFilterAll: '全部',
     logFilterErrors: '仅错误',
-    monitor: '心跳监控（自动轮询）',
-    agent: 'Agent',
-    agentFree: '手动输入 agent id…',
     runOnce: '执行一次',
     resumeTask: '继续任务',
     resumeTaskHint: '继续该任务：恢复心跳监控与自动执行',
@@ -54,10 +51,10 @@ const I18N = {
     stopConfirmTitle: '中止这个任务？',
     stopConfirmText: (id) => `将取消「${id}」正在进行的运行，并关闭它的心跳监控与自动执行。任务会移入「已停表」，随时可以继续。`,
     confirmStop: '确认中止',
-    stoppedState: '已停止 · 心跳与自动执行已关闭',
     deleteConfirmTitle: '删除这个任务？',
     deleteConfirmText: (id) => `将归档「${id}」的运行记录并从注册表移除（注册表文件会先备份）。看板将不再显示该任务。`,
     confirmDelete: '确认删除',
+    activityEmpty: '暂无日志',
     nextPoll: (t) => `下次轮询 ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `间隔 ${iv}m（基准 ${base}m ×${mult}^${n}，上限 ${cap}m）`,
     intervalPlain: (iv) => `间隔 ${iv}m`,
@@ -92,10 +89,6 @@ const I18N = {
     colSubActive: 'Agent 正在执行',
     detailEmptyHint: '点选「进行中」的条目查看任务详情与实时日志',
     groupDone: '已完成',
-    detailOverview: '当前动作',
-    detailStatus: '状态',
-    detailControls: '执行设置',
-    detailSchedule: '下次轮询',
     taskPlaceholder: '粘贴 GitHub Issue / 仓库 / Issues 列表链接，可附加修复要求；任务运行时可直接输入文字向 Agent 插话',
     taskGoalUnsupported: '请粘贴 GitHub Issue、PR、仓库首页或 Issues 列表链接（自由目标暂未开放）',
     taskUnsupportedPath: (u) => `不支持的 GitHub 链接：${u}。请粘贴 Issue、PR、仓库首页或 Issues 列表链接`,
@@ -145,10 +138,8 @@ const I18N = {
     approveFailed: (e) => `批准失败：${e}`,
     notifGateTitle: 'LoopX 需要你审批',
     notifGateBody: (id, n) => `${id} 有 ${n} 项等你处理`,
-    autoRunLabel: '自动连续执行',
     autoRunNext: '自动执行下一轮',
     autoRunDisabled: (id) => `${id} 连续失败，已暂停自动执行`,
-    activityTitle: '实时活动',
     activityStarting: '正在启动 Agent…',
     activitySentPrompt: (n) => `▶ 已向 Agent 发送指令（${n} 字符，点击展开）`,
     activityRunning: (elapsed) => `Agent 正在执行 · 已用时 ${elapsed}`,
@@ -173,7 +164,6 @@ const I18N = {
     intakeReuseNote: (repo) => `已找到 ${repo} 的本地 checkout，无需重新克隆。`,
     taskCloneOtherRepo: (expected, actual) => `本地目录绑定的是 ${actual}；将把 ${expected} 克隆到独立目录处理。`,
     composerModelTitle: '新任务执行模型',
-    openRepoDir: '打开仓库目录',
     otherTasksTitle: '本机其它 loopx 任务',
     otherTasksHint: '非本控制台创建，默认不监控。接管后进入看板并开始心跳轮询。',
     adopt: '接管',
@@ -183,7 +173,6 @@ const I18N = {
     modelAuto: '自动（跟随 BitFun 策略）',
     modelPrimaryTag: '主模型',
     modelFollowGlobal: '跟随全局默认',
-    detailModel: '执行模型',
     modelChanged: (m) => `执行模型已切换为 ${m}`,
     settingsProjectDir: '本地项目目录（可选 · 高级：修复你自己的 checkout，而不是自动克隆）',
     projectDirNone: '未设置（默认自动克隆到小应用数据目录）',
@@ -207,9 +196,6 @@ const I18N = {
     logTitle: 'Heartbeat & execution log',
     logFilterAll: 'All',
     logFilterErrors: 'Errors only',
-    monitor: 'Heartbeat monitoring (auto-poll)',
-    agent: 'Agent',
-    agentFree: 'Type agent id…',
     runOnce: 'Run once',
     resumeTask: 'Resume task',
     resumeTaskHint: 'Resume this task: restore heartbeat and auto-run',
@@ -224,10 +210,10 @@ const I18N = {
     stopConfirmTitle: 'Abort this task?',
     stopConfirmText: (id) => `This cancels the running turn of "${id}", switches off its heartbeat monitoring and auto-run. The task moves to "Stopped" and can be resumed anytime.`,
     confirmStop: 'Abort it',
-    stoppedState: 'Stopped · heartbeat and auto-run are off',
     deleteConfirmTitle: 'Delete this task?',
     deleteConfirmText: (id) => `This archives the runtime records of "${id}" and removes it from the registry (the registry file is backed up first). The task will no longer appear on the board.`,
     confirmDelete: 'Delete it',
+    activityEmpty: 'No log yet',
     nextPoll: (t) => `next poll in ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `every ${iv}m (base ${base}m ×${mult}^${n}, cap ${cap}m)`,
     intervalPlain: (iv) => `every ${iv}m`,
@@ -262,10 +248,6 @@ const I18N = {
     colSubActive: 'The agent is working',
     detailEmptyHint: 'Select an entry in "In progress" to see its details and live log',
     groupDone: 'Done',
-    detailOverview: 'Current action',
-    detailStatus: 'Status',
-    detailControls: 'Execution settings',
-    detailSchedule: 'Next poll',
     taskPlaceholder: 'Paste a GitHub issue / repository / issues-list link, optionally with fix instructions; while a task runs, type free text to guide the agent',
     taskGoalUnsupported: 'Paste a GitHub issue, pull request, repository home, or issues-list link (free-form goals are not open yet)',
     taskUnsupportedPath: (u) => `Unsupported GitHub link: ${u}. Paste an issue, a pull request, the repository home, or its issues list.`,
@@ -315,10 +297,8 @@ const I18N = {
     approveFailed: (e) => `Approval failed: ${e}`,
     notifGateTitle: 'LoopX needs your approval',
     notifGateBody: (id, n) => `${id} has ${n} item${n > 1 ? 's' : ''} waiting for you`,
-    autoRunLabel: 'Auto-run turns',
     autoRunNext: 'Auto-running the next turn',
     autoRunDisabled: (id) => `${id} failed repeatedly — auto-run paused`,
-    activityTitle: 'Live activity',
     activityStarting: 'Starting the Agent…',
     activitySentPrompt: (n) => `▶ Instructions sent to the agent (${n} chars, click to expand)`,
     activityRunning: (elapsed) => `Agent is working · ${elapsed} elapsed`,
@@ -343,7 +323,6 @@ const I18N = {
     intakeReuseNote: (repo) => `Found the local checkout of ${repo} — no re-cloning.`,
     taskCloneOtherRepo: (expected, actual) => `The local checkout is bound to ${actual}; ${expected} will be cloned into its own directory instead.`,
     composerModelTitle: 'Execution model for new tasks',
-    openRepoDir: 'Open repository folder',
     otherTasksTitle: 'Other local loopx goals',
     otherTasksHint: 'Created by other loopx hosts; not monitored until adopted.',
     adopt: 'Adopt',
@@ -353,7 +332,6 @@ const I18N = {
     modelAuto: 'Auto (follow BitFun policy)',
     modelPrimaryTag: 'primary',
     modelFollowGlobal: 'Follow global default',
-    detailModel: 'Execution model',
     modelChanged: (m) => `Execution model switched to ${m}`,
     settingsProjectDir: 'Local project directory (optional · advanced: fix your own checkout instead of auto-cloning)',
     projectDirNone: 'Not set (repositories are auto-cloned into the MiniApp data directory)',
@@ -1160,9 +1138,33 @@ function buildIntakeRow(draft) {
 
 // The 进行中 rail is a directory: one compact row per running goal. Clicking
 // a row selects it and streams its log into the panel beside the rail.
+// Lifecycle buttons live on the goal cards/rows themselves: 中止/继续 +
+// 删除, with stopPropagation so they never toggle the selection underneath.
+function buildGoalActions(g, column) {
+  const box = document.createElement('span');
+  box.className = 'goal-actions' + (column ? ' goal-actions--column' : '');
+  const primary = (g.userStopped || g.stopped)
+    ? { label: t('resumeTask'), kind: 'primary', handler: () => (g.userStopped ? resumeGoalTask(g) : pollNow(g)) }
+    : { label: t('stopTask'), kind: 'danger', handler: () => openStopConfirm(g) };
+  const pb = document.createElement('button');
+  pb.type = 'button';
+  pb.className = `btn btn--tiny ${primary.kind === 'primary' ? 'btn--primary' : 'btn--danger'}`;
+  pb.textContent = primary.label;
+  pb.title = primary.kind === 'primary' ? t('resumeTaskHint') : t('stopTaskHint');
+  pb.onclick = (ev) => { ev.stopPropagation(); primary.handler(); };
+  box.appendChild(pb);
+  const db = document.createElement('button');
+  db.type = 'button';
+  db.className = 'btn btn--tiny btn--danger';
+  db.textContent = t('deleteTask');
+  db.title = t('deleteTaskHint');
+  db.onclick = (ev) => { ev.stopPropagation(); openDeleteConfirm(g); };
+  box.appendChild(db);
+  return box;
+}
+
 function buildRunItem(g) {
-  const el = document.createElement('button');
-  el.type = 'button';
+  const el = document.createElement('div');
   el.className = 'run-item' + (S.activeGoalId === g.goalId ? ' is-selected' : '');
   el.setAttribute('aria-label', g.goalId);
   el.onclick = () => openGoalDetails(g);
@@ -1177,7 +1179,7 @@ function buildRunItem(g) {
   text.className = 'run-item__text';
   text.textContent = goalNarration(g);
   meta.append(id, text);
-  el.append(dot, meta);
+  el.append(dot, meta, buildGoalActions(g, true));
   return el;
 }
 
@@ -1246,12 +1248,12 @@ function buildOtherGoalsRows(goals) {
 
 function buildGoalCard(g, compact = false) {
   const group = goalGroup(g);
-  const el = document.createElement('button');
-  el.type = 'button';
+  const el = document.createElement('div');
   el.className = 'goal' + (compact ? ' goal--terminal' : '')
     + (group === 'review' ? ' goal--gated' : '')
     + (S.activeGoalId === g.goalId ? ' is-selected' : '');
   el.id = `goal-${g.goalId}`;
+  el.setAttribute('role', 'button');
   el.setAttribute('aria-label', g.goalId);
   el.onclick = () => openGoalDetails(g);
 
@@ -1309,23 +1311,9 @@ function buildGoalCard(g, compact = false) {
     meta.appendChild(agent);
   }
   if (meta.children.length) el.appendChild(meta);
+  // Lifecycle actions on the card itself — more direct than a hidden panel.
+  el.appendChild(buildGoalActions(g, false));
   return el;
-}
-
-function appendDetailRow(grid, key, value, className = '', goalId = null) {
-  const k = document.createElement('div');
-  k.className = 'detail__key';
-  k.textContent = key;
-  const v = document.createElement('div');
-  v.className = `detail__value ${className}`.trim();
-  v.textContent = value || '—';
-  // Rows tagged with a goal id are live countdowns: the 1s loop repaints
-  // them in place without a full drawer re-render.
-  if (goalId) {
-    v.classList.add('countdown');
-    v.dataset.goal = goalId;
-  }
-  grid.append(k, v);
 }
 
 function renderGoalDetails(g) {
@@ -1342,18 +1330,7 @@ function renderGoalDetails(g) {
   const body = document.getElementById('goal-detail-body');
   body.replaceChildren();
 
-  const overview = document.createElement('section');
-  overview.className = 'detail__section';
-  const overviewLabel = document.createElement('div');
-  overviewLabel.className = 'detail__label';
-  overviewLabel.textContent = t('detailOverview');
-  const action = document.createElement('div');
-  action.className = 'detail__action' + (g.lastError ? ' goal__reason--err' : '');
-  action.textContent = goalNarration(g);
-  overview.append(overviewLabel, action);
-  body.appendChild(overview);
-
-  // Pending approvals first — the drawer's whole point when a gate is open.
+  // Pending approvals first — the panel's second purpose when a gate is open.
   if (isGated(g)) {
     const gates = document.createElement('section');
     gates.className = 'detail__section detail__section--gate';
@@ -1405,193 +1382,21 @@ function renderGoalDetails(g) {
     body.appendChild(gates);
   }
 
-  if (g.running || g.activityLines.length) {
-    const activity = document.createElement('section');
-    activity.className = 'detail__section';
-    const activityLabel = document.createElement('div');
-    activityLabel.className = 'detail__label';
-    activityLabel.textContent = t('activityTitle');
-    const stream = document.createElement('div');
-    stream.className = 'activity-stream';
-    stream.dataset.goal = g.goalId;
+  // The panel IS the log: the live activity stream, and nothing else.
+  // (Lifecycle actions live on the goal cards themselves.)
+  const stream = document.createElement('div');
+  stream.className = 'activity-stream activity-stream--panel';
+  stream.dataset.goal = g.goalId;
+  if (g.activityLines.length > 0) {
     for (const entry of g.activityLines) stream.appendChild(activityLineElement(entry));
-    activity.append(activityLabel, stream);
-    body.appendChild(activity);
-    requestAnimationFrame(() => { stream.scrollTop = stream.scrollHeight; });
-  }
-
-  const status = document.createElement('section');
-  status.className = 'detail__section';
-  const statusLabel = document.createElement('div');
-  statusLabel.className = 'detail__label';
-  statusLabel.textContent = t('detailStatus');
-  const grid = document.createElement('div');
-  grid.className = 'detail__grid';
-  if (g.userStopped) {
-    // A stopped task explains itself: one clear row instead of scheduler
-    // noise (its heartbeat and schedule are off by definition).
-    appendDetailRow(grid, t('detailStatus'), t('stoppedState'));
   } else {
-    const waiting = g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn;
-    appendDetailRow(grid, t('detailStatus'), waiting
-      ? `${g.last?.state ?? g.state ?? '—'} · ${waitingLabel(waiting)}`
-      : (g.last?.state ?? g.state ?? '—'));
-    appendDetailRow(grid, t('detailSchedule'), goalMetaText(g), g.errorCount ? 'countdown--err' : '', g.goalId);
+    const empty = document.createElement('div');
+    empty.className = 'activity-empty';
+    empty.textContent = g.running ? t('activityStarting') : t('activityEmpty');
+    stream.appendChild(empty);
   }
-  status.append(statusLabel, grid);
-  body.appendChild(status);
-
-  const controls = document.createElement('section');
-  controls.className = 'detail__section detail__controls';
-  const controlsLabel = document.createElement('div');
-  controlsLabel.className = 'detail__label';
-  controlsLabel.textContent = t('detailControls');
-  controls.appendChild(controlsLabel);
-  const agentField = document.createElement('label');
-  agentField.className = 'field';
-  const agentLabel = document.createElement('span');
-  agentLabel.textContent = t('agent');
-  agentField.appendChild(agentLabel);
-  if (g.agents.length) {
-    const select = document.createElement('select');
-    const options = g.agentId && !g.agents.includes(g.agentId) ? [...g.agents, g.agentId] : g.agents;
-    for (const agentId of options) {
-      const option = document.createElement('option');
-      option.value = agentId;
-      option.textContent = agentId;
-      option.selected = agentId === g.agentId;
-      select.appendChild(option);
-    }
-    select.onchange = () => {
-      g.agentId = select.value;
-      S.config.agentByGoal[g.goalId] = g.agentId;
-      saveConfig();
-      renderAllGoals(true);
-    };
-    agentField.appendChild(select);
-  } else {
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = t('agentFree');
-    input.value = g.agentId;
-    input.onchange = () => {
-      g.agentId = input.value.trim();
-      S.config.agentByGoal[g.goalId] = g.agentId;
-      saveConfig();
-      renderAllGoals(true);
-    };
-    agentField.appendChild(input);
-  }
-  controls.appendChild(agentField);
-  const modelField = document.createElement('label');
-  modelField.className = 'field';
-  const modelLabel = document.createElement('span');
-  modelLabel.textContent = t('detailModel');
-  modelField.appendChild(modelLabel);
-  const modelSelect = document.createElement('select');
-  fillModelSelect(modelSelect, S.config.modelByGoal[g.goalId] || '', true);
-  modelSelect.onchange = () => {
-    S.config.modelByGoal[g.goalId] = modelSelect.value;
-    saveConfig();
-    log(`[${g.goalId}] ${t('modelChanged', modelForGoal(g.goalId))}`, false);
-    renderGoalDetails(g);
-  };
-  modelField.appendChild(modelSelect);
-  controls.appendChild(modelField);
-  // A user-stopped task is parked as a whole: heartbeat and auto-run are
-  // managed by 停止/恢复, so the per-switch toggles hide until resumed.
-  if (!g.userStopped) {
-    const monitor = document.createElement('label');
-    monitor.className = 'detail__toggle';
-    monitor.appendChild(document.createTextNode(t('monitor')));
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = g.monitoring;
-    checkbox.onchange = () => {
-      g.monitoring = checkbox.checked;
-      S.config.monitorByGoal[g.goalId] = checkbox.checked;
-      saveConfig();
-      if (checkbox.checked) pollNow(g); else rearmTimer();
-      renderAllGoals(true);
-    };
-    monitor.appendChild(checkbox);
-    controls.appendChild(monitor);
-    const autoRunToggle = document.createElement('label');
-    autoRunToggle.className = 'detail__toggle';
-    autoRunToggle.appendChild(document.createTextNode(t('autoRunLabel')));
-    const autoRunBox = document.createElement('input');
-    autoRunBox.type = 'checkbox';
-    autoRunBox.checked = g.autoRun;
-    autoRunBox.onchange = () => {
-      setAutoRun(g, autoRunBox.checked);
-      renderAllGoals(true);
-    };
-    autoRunToggle.appendChild(autoRunBox);
-    controls.appendChild(autoRunToggle);
-  }
-  const goalDir = goalProjectDir(g.goalId);
-  if (goalDir) {
-    const dirRow = document.createElement('div');
-    dirRow.className = 'detail__repodir';
-    const dirText = document.createElement('span');
-    dirText.className = 'detail__repodir-path';
-    dirText.textContent = goalDir;
-    dirText.title = goalDir;
-    const dirButton = document.createElement('button');
-    dirButton.type = 'button';
-    dirButton.className = 'btn btn--small detail__repodir-btn';
-    const folderIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    folderIcon.setAttribute('width', '13');
-    folderIcon.setAttribute('height', '13');
-    folderIcon.setAttribute('viewBox', '0 0 16 16');
-    folderIcon.setAttribute('fill', 'none');
-    folderIcon.setAttribute('stroke', 'currentColor');
-    folderIcon.setAttribute('stroke-width', '1.5');
-    folderIcon.setAttribute('stroke-linecap', 'round');
-    folderIcon.setAttribute('stroke-linejoin', 'round');
-    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    pathEl.setAttribute('d', 'M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.8h5A1.5 1.5 0 0 1 14 6.3v5.2a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z');
-    folderIcon.appendChild(pathEl);
-    const dirLabel = document.createElement('span');
-    dirLabel.textContent = t('openRepoDir');
-    dirButton.append(folderIcon, dirLabel);
-    dirButton.onclick = () => {
-      try { app.system.revealInFolder(goalDir); } catch (err) {
-        log(`reveal failed: ${err.message || err}`, true);
-      }
-    };
-    dirRow.append(dirText, dirButton);
-    controls.appendChild(dirRow);
-  }
-  body.appendChild(controls);
-
-  const actions = document.createElement('div');
-  actions.className = 'detail__actions';
-  if (g.userStopped || g.stopped) {
-    const resumeBtn = document.createElement('button');
-    resumeBtn.type = 'button';
-    resumeBtn.className = 'btn btn--primary';
-    resumeBtn.textContent = t('resumeTask');
-    resumeBtn.title = t('resumeTaskHint');
-    resumeBtn.onclick = () => g.userStopped ? resumeGoalTask(g) : pollNow(g);
-    actions.appendChild(resumeBtn);
-  } else {
-    const abort = document.createElement('button');
-    abort.type = 'button';
-    abort.className = 'btn btn--danger';
-    abort.textContent = t('stopTask');
-    abort.title = t('stopTaskHint');
-    abort.onclick = () => openStopConfirm(g);
-    actions.appendChild(abort);
-  }
-  const del = document.createElement('button');
-  del.type = 'button';
-  del.className = 'btn btn--danger';
-  del.textContent = t('deleteTask');
-  del.title = t('deleteTaskHint');
-  del.onclick = () => openDeleteConfirm(g);
-  actions.appendChild(del);
-  body.appendChild(actions);
+  body.appendChild(stream);
+  requestAnimationFrame(() => { stream.scrollTop = stream.scrollHeight; });
 }
 
 // Gate approval confirmation: full todo text + optional note, one deliberate
@@ -1920,6 +1725,12 @@ async function executeRunOnce(g) {
   g.agentTextBuffer = '';
   g.currentActivity = '';
   recordGoalActivity(g, t('activityStarting'));
+  // Auto-focus: a task that starts running becomes the selected task, so its
+  // log streams into the right-hand panel without a click.
+  if (S.activeGoalId !== g.goalId) {
+    S.activeGoalId = g.goalId;
+    document.getElementById('goal-detail-panel').hidden = false;
+  }
   renderGoal(g);
   log(`[${g.goalId}] turn started (agent=${g.agentId})`);
   try {
