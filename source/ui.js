@@ -162,6 +162,7 @@ const I18N = {
     stageClonePercent: (p) => `正在克隆仓库… ${p}%`,
     intakeCloneNote: (repo) => `将自动克隆 ${repo} 到小应用数据目录并开始修复（无需本地 checkout）。`,
     intakeReuseNote: (repo) => `已找到 ${repo} 的本地 checkout，无需重新克隆。`,
+    intakeWriteNote: '本确认即授权：任务将获得仓库写权限并自动连续执行；仅在需要提 PR/发布时才会再次询问你。',
     taskCloneOtherRepo: (expected, actual) => `本地目录绑定的是 ${actual}；将把 ${expected} 克隆到独立目录处理。`,
     composerModelTitle: '新任务执行模型',
     otherTasksTitle: '本机其它 loopx 任务',
@@ -321,6 +322,7 @@ const I18N = {
     stageClonePercent: (p) => `Cloning repository… ${p}%`,
     intakeCloneNote: (repo) => `${repo} will be cloned into the MiniApp data directory (no local checkout needed).`,
     intakeReuseNote: (repo) => `Found the local checkout of ${repo} — no re-cloning.`,
+    intakeWriteNote: 'This confirmation grants the task repository write scope and continuous auto-run; you will only be asked again for PR/publish decisions.',
     taskCloneOtherRepo: (expected, actual) => `The local checkout is bound to ${actual}; ${expected} will be cloned into its own directory instead.`,
     composerModelTitle: 'Execution model for new tasks',
     otherTasksTitle: 'Other local loopx goals',
@@ -2269,6 +2271,11 @@ function openIntakeSheet(resolved, objective) {
   }
   if (resolved.fellBackFromCheckout) {
     summary.textContent += `\n${t('taskCloneOtherRepo', resolved.repo || '?', resolved.fellBackFromCheckout)}`;
+  }
+  // New tasks carry pre-granted write scope (this confirmation IS the
+  // consent); only publish/PR decisions still gate later.
+  if (resolved.repo) {
+    summary.textContent += `\n${t('intakeWriteNote')}`;
   }
 
   // issue checklist (only for multi/list intake; single issue needs no picking)

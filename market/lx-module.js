@@ -802,6 +802,10 @@
               '--adapter-kind', 'read_only_project_map_v0',
               '--adapter-status', 'connected-read-only',
               '--no-onboarding-scan', '--codex-app-heartbeat', 'ask',
+              // The intake confirmation is the user's consent to fix this
+              // repository: pre-grant the "write" scope so the agent can
+              // edit code without a mid-run gate (publish/PR stays gated).
+              '--write-scope', 'write',
             ], 90000);
             if (bootstrap.code !== 0 || bootstrap.payload?.ok === false) {
               throw new Error(bootstrap.payload?.error || bootstrap.stderr.trim() || 'loopx bootstrap failed');

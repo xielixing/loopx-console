@@ -1137,6 +1137,10 @@ module.exports = {
             '--adapter-kind', 'read_only_project_map_v0',
             '--adapter-status', 'connected-read-only',
             '--no-onboarding-scan', '--codex-app-heartbeat', 'ask',
+            // The intake confirmation sheet is the user's consent to fix this
+            // repository: pre-grant the "write" scope so the agent can edit
+            // code without a mid-run approval gate (publish/PR stays gated).
+            '--write-scope', 'write',
           ], { srcDir, timeoutMs: 90000 });
           if (bootstrap.result.code !== 0 || bootstrap.payload?.ok === false) {
             throw new Error(bootstrap.payload?.error || bootstrap.result.stderr.trim() || 'loopx bootstrap failed');
