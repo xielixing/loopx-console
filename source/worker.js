@@ -878,7 +878,7 @@ module.exports = {
     issues = null, // [{url, number, title}] — pre-confirmed selection from the UI
   } = {}) {
     const text = String(objective || '').trim();
-    if (!projectDir) throw new Error('loopx.taskIntake: a local project directory is required');
+    if (!projectDir && !autoClone) throw new Error('loopx.taskIntake: a local project directory is required (or enable autoClone)');
     dbgWorker('taskIntake:start', `mode=${mode} autoClone=${autoClone} projectDir=${projectDir || '(none)'} text=${text.slice(0, 80)}`);
     if (!text) throw new Error('loopx.taskIntake: objective is required');
     if (text.length > 4000) throw new Error('loopx.taskIntake: objective is too long (max 4000 characters)');
