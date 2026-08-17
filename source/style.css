@@ -335,6 +335,18 @@ button, input, select { font: inherit; }
 .activity-stream__line { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; overflow-wrap: anywhere; }
 .activity-stream__time { color: var(--lx-text-mute); }
 .activity-stream__line--err { color: var(--lx-error); }
+/* Agent streamed text reads like speech; the sent instructions are an
+   expandable block. */
+.activity-stream__line--agent .activity-stream__text { color: var(--lx-text); }
+.activity-prompt { grid-column: 1 / -1; }
+.activity-prompt summary { cursor: pointer; color: var(--lx-accent); }
+.activity-prompt summary:hover { text-decoration: underline; }
+.activity-prompt pre {
+  margin: 5px 0 0; padding: 7px 8px; max-height: 240px; overflow: auto;
+  border: 1px solid var(--lx-border); border-radius: 5px; background: var(--lx-bg);
+  color: var(--lx-text-soft); font: 10.5px/1.5 var(--lx-mono);
+  white-space: pre-wrap; word-break: break-all;
+}
 .badge { display: inline-flex; align-items: center; gap: 5px; width: fit-content; color: var(--lx-text-soft); font-size: 11px; }
 .countdown { color: var(--lx-text-mute); font: 11px/1.4 var(--lx-mono); }
 .countdown--err, .goal__reason--err, .goal__lastrun--err { color: var(--lx-error); }

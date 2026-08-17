@@ -115,6 +115,7 @@ const I18N = {
     autoRunDisabled: (id) => `${id} 连续失败，已暂停自动执行`,
     activityTitle: '实时活动',
     activityStarting: '正在启动 Agent…',
+    activitySentPrompt: (n) => `▶ 已向 Agent 发送指令（${n} 字符，点击展开）`,
     activityRunning: (elapsed) => `Agent 正在执行 · 已用时 ${elapsed}`,
     activityCommitted: 'LoopX 已提交本次执行结果',
     activityValidationPassed: '独立校验已通过',
@@ -269,6 +270,7 @@ const I18N = {
     autoRunDisabled: (id) => `${id} failed repeatedly — auto-run paused`,
     activityTitle: 'Live activity',
     activityStarting: 'Starting the Agent…',
+    activitySentPrompt: (n) => `▶ Instructions sent to the agent (${n} chars, click to expand)`,
     activityRunning: (elapsed) => `Agent is working · ${elapsed} elapsed`,
     activityCommitted: 'LoopX committed this run',
     activityValidationPassed: 'Independent validation passed',
@@ -973,19 +975,34 @@ function activityDisplayText(entry) {
 
 function activityLineElement(entry) {
   const row = document.createElement('div');
-  row.className = 'activity-stream__line' + (entry.isErr ? ' activity-stream__line--err' : '');
+  row.className = 'activity-stream__line'
+    + (entry.isErr ? ' activity-stream__line--err' : '')
+    + (entry.kind ? ` activity-stream__line--${entry.kind}` : '');
   const time = document.createElement('span');
   time.className = 'activity-stream__time';
   time.textContent = entry.time;
-  const text = document.createElement('span');
-  text.className = 'activity-stream__text';
-  text.textContent = activityDisplayText(entry);
-  row.append(time, text);
+  row.appendChild(time);
+  if (entry.kind === 'prompt' && entry.raw) {
+    // The instructions sent to the agent: collapsed by default, expandable.
+    const details = document.createElement('details');
+    details.className = 'activity-prompt';
+    const summary = document.createElement('summary');
+    summary.textContent = activityDisplayText(entry);
+    const pre = document.createElement('pre');
+    pre.textContent = entry.raw;
+    details.append(summary, pre);
+    row.appendChild(details);
+  } else {
+    const text = document.createElement('span');
+    text.className = 'activity-stream__text';
+    text.textContent = activityDisplayText(entry);
+    row.appendChild(text);
+  }
   return row;
 }
 
-function recordGoalActivity(g, line, isErr = false) {
-  const summary = activityText(line);
+function recordGoalActivity(g, line, isErr = false, kind = null, raw = null) {
+  const summary = kind === 'agent' ? String(line).trim() : activityText(line);
   if (!summary) return;
   if (!Array.isArray(g.activityLines)) g.activityLines = [];
   if (typeof g.currentActivity !== 'string') g.currentActivity = '';
@@ -993,7 +1010,8 @@ function recordGoalActivity(g, line, isErr = false) {
   // Collapse back-to-back repeats (tool streams spam the same verb) into one
   // line with a multiplier instead of a wall of identical rows.
   const last = g.activityLines[g.activityLines.length - 1];
-  if (last && !last.isErr && !isErr && !last.isTick && last.line === summary) {
+  if (last && !last.isErr && !isErr && !last.isTick && !last.kind && !kind
+      && last.line === summary) {
     last.count = (last.count || 1) + 1;
     last.time = now;
     const stream = document.querySelector(`.activity-stream[data-goal="${CSS.escape(g.goalId)}"]`);
@@ -1006,7 +1024,7 @@ function recordGoalActivity(g, line, isErr = false) {
     g.currentActivity = summary;
     return;
   }
-  const entry = { time: now, line: summary, isErr, count: 1 };
+  const entry = { time: now, line: summary, isErr, count: 1, kind, raw };
   g.activityLines.push(entry);
   if (g.activityLines.length > 240) g.activityLines.splice(0, g.activityLines.length - 240);
   g.currentActivity = summary;
@@ -1781,6 +1799,7 @@ async function executeRunOnce(g) {
   g.running = true;
   g.runStartedAt = Date.now();
   g.activityLines = [];
+  g.agentTextBuffer = '';
   g.currentActivity = '';
   recordGoalActivity(g, t('activityStarting'));
   renderGoal(g);
@@ -1794,6 +1813,8 @@ async function executeRunOnce(g) {
       agentId: g.agentId,
     });
     if (!composed.ok) throw new Error(composed.error || 'turn prompt failed');
+    // The log shows what was sent to the agent — collapsed, expandable.
+    recordGoalActivity(g, t('activitySentPrompt', composed.prompt.length), false, 'prompt', composed.prompt);
     const run = await app.agent.run(composed.prompt, {
       sessionName: `LoopX · ${g.goalId}`,
       sessionId: S.agentSessionByGoal.get(g.goalId) || undefined,
@@ -1888,14 +1909,57 @@ function goalForAgentSession(sessionId) {
   return null;
 }
 
-// Compact progress narration from the agent event stream: tool calls and
-// turn boundaries, not raw text chunks. Pure read/observe tools (Read, Grep,
-// Glob, …) are the agent's eyes, not progress — skip them; repeats of the
-// same verb collapse into one "×N" line via recordGoalActivity.
+// Compact progress narration from the agent event stream: the instructions
+// sent to the agent, its streamed text, tool calls with brief args, and turn
+// boundaries. Pure read/observe tools (Read, Grep, Glob, …) are the agent's
+// eyes, not progress — skip them; repeats of the same verb collapse into one
+// "×N" line via recordGoalActivity.
 const QUIET_AGENT_TOOLS = new Set([
   'read', 'grep', 'glob', 'ls', 'list', 'find', 'cat', 'search',
   'web_search', 'websearch', 'fetch', 'mcp',
 ]);
+
+// The agent's streamed text is accumulated and cut into paragraph-sized
+// lines, so the log reads like the agent talking instead of token spam.
+function streamAgentText(g, text) {
+  if (!isLiveGoal(g) || !text) return;
+  if (typeof g.agentTextBuffer !== 'string') g.agentTextBuffer = '';
+  g.agentTextBuffer += text;
+  const cut = (buf) => {
+    const nl = buf.indexOf('\n');
+    if (nl >= 0) return nl;
+    return buf.length >= 160 ? 160 : -1;
+  };
+  let idx;
+  while ((idx = cut(g.agentTextBuffer)) >= 0) {
+    const segment = g.agentTextBuffer.slice(0, idx).trim();
+    g.agentTextBuffer = g.agentTextBuffer.slice(idx + 1);
+    if (segment) recordGoalActivity(g, segment, false, 'agent');
+  }
+}
+
+function flushAgentText(g) {
+  if (!isLiveGoal(g)) return;
+  if (typeof g.agentTextBuffer === 'string' && g.agentTextBuffer.trim()) {
+    recordGoalActivity(g, g.agentTextBuffer.trim(), false, 'agent');
+  }
+  g.agentTextBuffer = '';
+}
+
+function toolBrief(e, te) {
+  const rawParams = te.params ?? e.params;
+  if (rawParams == null) return '';
+  try {
+    const p = typeof rawParams === 'string' ? JSON.parse(rawParams) : rawParams;
+    if (!p || typeof p !== 'object') return '';
+    const brief = p.command || p.cmd || p.file_path || p.filePath || p.path
+      || p.query || p.pattern || p.url || p.target_file || '';
+    return String(brief).slice(0, 120);
+  } catch (_) {
+    return '';
+  }
+}
+
 app.agent.onEvent((e) => {
   const g = goalForAgentSession(e.sessionId);
   if (!g) return;
@@ -1908,13 +1972,22 @@ app.agent.onEvent((e) => {
     const phase = te.event_type || te.phase || e.phase;
     if (name && phase !== 'Completed' && phase !== 'completed'
         && !QUIET_AGENT_TOOLS.has(String(name).toLowerCase())) {
-      recordGoalActivity(g, String(name));
+      const brief = toolBrief(e, te);
+      recordGoalActivity(g, brief ? `${name}：${brief}` : String(name));
+    }
+  } else if (e.sourceEvent === 'text-chunk') {
+    // contentType 'thinking' is the agent's private reasoning — skip it.
+    if (e.contentType !== 'thinking' && typeof e.text === 'string') {
+      streamAgentText(g, e.text);
     }
   } else if (e.sourceEvent === 'dialog-turn-completed') {
+    flushAgentText(g);
     finishRun(g, { ok: true });
   } else if (e.sourceEvent === 'dialog-turn-failed') {
+    flushAgentText(g);
     finishRun(g, { ok: false, error: String(e.error || e.message || 'turn failed') });
   } else if (e.sourceEvent === 'dialog-turn-cancelled') {
+    flushAgentText(g);
     finishRun(g, { ok: false, cancelled: true });
   }
 });
