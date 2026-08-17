@@ -1688,6 +1688,9 @@ function applyPollError(g, message) {
   g.lastError = message;
   g.intervalMin = Math.min(Math.pow(2, g.errorCount), ERROR_BACKOFF_CAP_MIN);
   log(`[${g.goalId}] poll failed ×${g.errorCount}: ${message}`, true);
+  // The panel IS the only log surface now: a dead worker / broken loopx
+  // must be visible there instead of freezing silently.
+  recordGoalActivity(g, `⚠ ${message}`, true);
 }
 
 async function pollGoal(g) {
@@ -2823,6 +2826,15 @@ async function executeRunOnce(g) {
     S.activeGoalId = g.goalId;
     document.getElementById('goal-detail-panel').hidden = false;
   }
+  // The liveness tick starts immediately: the panel keeps moving even while
+  // turnPrompt / agent.run are still in flight (or stuck), so a silent
+  // freeze is impossible — the elapsed clock visibly stops if it breaks.
+  const startedAt = g.runStartedAt;
+  const tick = setInterval(() => {
+    if (isLiveGoal(g) && g.running) {
+      setGoalActivityTick(g, t('activityRunning', fmtCountdown(Date.now() - startedAt)));
+    }
+  }, 10000);
   renderGoal(g);
   log(`[${g.goalId}] turn started (agent=${g.agentId})`);
   try {
@@ -2843,12 +2855,6 @@ async function executeRunOnce(g) {
       model: modelForGoal(g.goalId),
     });
     S.agentSessionByGoal.set(g.goalId, run.sessionId);
-    const startedAt = Date.now();
-    const tick = setInterval(() => {
-      if (isLiveGoal(g) && g.running) {
-        setGoalActivityTick(g, t('activityRunning', fmtCountdown(Date.now() - startedAt)));
-      }
-    }, 10000);
     agentRuns.set(g.goalId, { sessionId: run.sessionId, turnId: run.turnId, startedAt, tick });
   } catch (err) {
     const message = String(err?.message || err);

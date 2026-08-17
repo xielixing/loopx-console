@@ -1487,10 +1487,12 @@ module.exports = {
   } = {}) {
     if (!goalId || !agentId) throw new Error('loopx.turnPrompt: goalId and agentId are required');
     if (!projectDir) throw new Error('loopx.turnPrompt: projectDir is required');
+    dbgWorker('turnPrompt:start', `goalId=${goalId}`);
     const { result, payload } = await runJson(argvPrefix, projectDir, [
       'heartbeat-prompt', '--goal-id', goalId, '--agent-id', agentId,
       '--runtime-profile', 'outer_controller', '--compact',
     ], { srcDir, timeoutMs: 180000 });
+    dbgWorker('turnPrompt:done', `code=${result.code} hasBody=${Boolean(payload && payload.task_body)}`);
     const body = payload && typeof payload.task_body === 'string' ? payload.task_body : null;
     if (result.code !== 0 || payload?.ok === false || !body) {
       return {
