@@ -599,7 +599,7 @@ function applyPollError(g, message) {
 async function pollGoal(g) {
   if (g.polling) return;
   g.polling = true;
-  renderGoal(g);
+  requestRender();
   try {
     const res = await app.call('loopx.shouldRun', {
       argvPrefix: S.config.argvPrefix,
@@ -660,7 +660,7 @@ async function pollGoal(g) {
     // refreshGoals): an orphaned closure must not notify or launch anything.
     if (isLiveGoal(g)) {
       syncGateState(g);
-      renderGoal(g);
+      requestRender();
       rearmTimer();
       maybeAutoRun(g);
       if (g.repollQueued) {
@@ -1909,7 +1909,7 @@ function finishRun(g, { ok, cancelled = false, error = null }) {
     log(`[${g.goalId}] turn failed: ${error || '?'}`, true);
     recordGoalActivity(g, error || t('activityFailed'), true);
   }
-  renderGoal(g);
+  requestRender();
   pollNow(g, { force: true }); // fresh decision even while hidden; auto-run re-fires from the poll
 }
 
@@ -2719,8 +2719,13 @@ window.addEventListener('beforeunload', () => {
   dbgUi('boot:i18nApplied', `t=${bootMs()}ms`);
   startCountdownLoop();
   updateHeaderStatus();
-  const detected = await detect();
+  // Detect (banner + prefix persistence) and goal loading run in parallel:
+  // listGoals resolves the invocation prefix on its own, so the board no
+  // longer waits ~1.4s behind the CLI probe before showing goals.
+  const detectedPromise = detect();
+  const goalsPromise = refreshGoals();
+  const detected = await detectedPromise;
   dbgUi('boot:detected', `t=${bootMs()}ms found=${detected} theme=${themeProbe()}`);
-  if (detected) await refreshGoals();
+  await goalsPromise;
   dbgUi('boot:done', `t=${bootMs()}ms goals=${S.goals.size} theme=${themeProbe()}`);
 })();

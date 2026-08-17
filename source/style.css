@@ -123,6 +123,11 @@ button, input, select { font: inherit; }
 .workspace {
   flex: 1; min-height: 0; margin: 8px 14px 0;
   display: flex; gap: 12px; overflow: hidden;
+  animation: workspace-in 200ms ease-out;
+}
+@keyframes workspace-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
 }
 /* 等你处理 stands alone: one narrow decision column in its own frame. */
 .review-zone {
