@@ -1124,7 +1124,9 @@ module.exports = {
     const agentsByGoal = {};
     const objectivesByGoal = {};
     for (const target of targets) {
-      const dir = target ? path.dirname(target) : null;
+      // target is <dir>/.loopx/registry.json — strip both segments to get the
+      // project directory itself.
+      const dir = target ? path.dirname(path.dirname(target)) : null;
       const { registry } = readRegistry(dir);
       for (const goal of (registry && registry.goals) || []) {
         const goalId = goal.goal_id || goal.id;
@@ -1140,9 +1142,10 @@ module.exports = {
     let lastOk = true;
     const groups = {};
     for (const target of targets) {
-      const dir = target ? path.dirname(target) : null;
+      const dir = target ? path.dirname(path.dirname(target)) : null;
+      // runJson injects --registry <dir>/.loopx/registry.json itself; adding
+      // one here would double the flag and make loopx reject the command.
       const args = ['quota', 'status', '--scan-root', quotaScanRoot()];
-      if (target) args.push('--registry', target);
       const { result, payload } = await runJson(argvPrefix, dir, args);
       if (result.code !== 0) {
         lastOk = false;

@@ -2083,8 +2083,8 @@ app.on('worker:taskIntake:done', async (result) => {
     log(`[${result.goalId}] task created (${result.intakeKind}, ${result.written.length} todos)`);
   }
   if (S.intakeDraft) S.intakeDraft.stage = t('taskStageStarting');
-  await refreshGoals();
   S.intakeDraft = null;
+  await refreshGoals();
   const goal = S.goals.get(result.goalId);
   if (goal) {
     if (result.mode === 'new') {

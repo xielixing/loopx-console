@@ -165,7 +165,7 @@ button, input, select { font: inherit; }
 .goal--terminal { min-height: 76px; background: transparent; opacity: .82; }
 .goal--terminal .goal__reason { color: var(--lx-text-soft); font-size: 12px; font-weight: 450; }
 
-.archive { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--lx-border); border-radius: 3px; background: color-mix(in srgb, var(--lx-surface) 30%, var(--lx-bg)); }
+.archive { display: flex; flex-direction: column; min-width: 0; min-height: 0; grid-column: 1 / -1; margin-top: 4px; max-height: 260px; border: 1px solid var(--lx-border); border-radius: 3px; background: color-mix(in srgb, var(--lx-surface) 30%, var(--lx-bg)); }
 .archive__head { display: flex; align-items: center; gap: 6px; min-height: 43px; padding: 0 11px; border-bottom: 1px solid var(--lx-border); color: var(--lx-text-soft); font-size: 11.5px; font-weight: 600; }
 .archive__body { overflow-y: auto; }
 .archive__group { border-bottom: 1px solid var(--lx-border); }
