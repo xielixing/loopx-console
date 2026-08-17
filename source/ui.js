@@ -627,7 +627,8 @@ async function pollGoal(g) {
     } else if (key !== g.lastDecisionKey) {
       g.intervalMin = recommended;
       g.unchangedCount = 0;
-      log(`[${g.goalId}] decision changed (${res.state ?? '?'}/${res.shouldRun}) → interval ${g.intervalMin}m`);
+      const reasonBrief = String(res.reason || '').slice(0, 160);
+      log(`[${g.goalId}] decision changed (${res.state ?? '?'}/${res.shouldRun}) → interval ${g.intervalMin}m${reasonBrief ? ` · ${reasonBrief}` : ''}`);
     } else {
       g.unchangedCount += 1;
       g.intervalMin = Math.min(g.intervalMin * backoff, maxIv);
@@ -941,8 +942,18 @@ function renderGoal(_g) {
 }
 
 function goalNarration(g) {
-  return g.objective || g.last?.recommendedAction || g.last?.reason || g.lastError
-    || g.last?.state || g.state || g.goalId;
+  // Scheduler guidance (recommended_action / reason, e.g. "run a bounded
+  // vision-gap replan…") is loopx-internal jargon — never surface it. The
+  // board speaks in objectives, errors, and states; the raw reason stays in
+  // the diagnostics log.
+  return g.objective || g.lastError || g.last?.state || g.state || g.goalId || '';
+}
+
+// waiting_on values are loopx identifiers ('user', 'controller', …); translate
+// the one that means the user instead of leaking raw ids into the UI.
+function waitingLabel(w) {
+  if (!w) return null;
+  return String(w).toLowerCase() === 'user' ? t('groupReview') : String(w);
 }
 
 function activityText(line) {
@@ -1110,7 +1121,7 @@ function buildGoalCard(g, compact = false) {
   const narration = document.createElement('div');
   narration.className = 'goal__reason' + (g.lastError ? ' goal__reason--err' : '');
   narration.textContent = goalNarration(g);
-  if (g.last?.recommendedAction && g.last?.reason) narration.title = g.last.reason;
+  narration.title = goalNarration(g); // full text on hover, no scheduler jargon
   el.appendChild(narration);
 
   // A gated card leads with the concrete ask, not the generic narration.
@@ -1184,15 +1195,6 @@ function renderGoalDetails(g) {
   action.className = 'detail__action' + (g.lastError ? ' goal__reason--err' : '');
   action.textContent = goalNarration(g);
   overview.append(overviewLabel, action);
-  const detailReason = g.objective
-    ? (g.last?.recommendedAction || g.last?.reason)
-    : (g.last?.recommendedAction && g.last?.reason ? g.last.reason : null);
-  if (detailReason && detailReason !== goalNarration(g)) {
-    const reason = document.createElement('div');
-    reason.className = 'detail__reason';
-    reason.textContent = detailReason;
-    overview.appendChild(reason);
-  }
   body.appendChild(overview);
 
   // Pending approvals first — the drawer's whole point when a gate is open.
@@ -1227,7 +1229,10 @@ function renderGoalDetails(g) {
       if (!g.userTodos.length) {
         const none = document.createElement('div');
         none.className = 'detail__reason';
-        none.textContent = t('waitingOn', (g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn) || '—');
+        const gateWait = (g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn) || null;
+        none.textContent = gateWait
+          ? (waitingLabel(gateWait) === t('groupReview') ? t('groupReview') : t('waitingOn', waitingLabel(gateWait)))
+          : '—';
         gates.appendChild(none);
         // A gate with no approvable todo would otherwise be a dead end —
         // offer the one action that can move it: run a turn.
@@ -1268,7 +1273,7 @@ function renderGoalDetails(g) {
   grid.className = 'detail__grid';
   const waiting = g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn;
   appendDetailRow(grid, t('detailStatus'), waiting
-    ? `${g.last?.state ?? g.state ?? '—'} · ${t('waitingOn', waiting)}`
+    ? `${g.last?.state ?? g.state ?? '—'} · ${waitingLabel(waiting)}`
     : (g.last?.state ?? g.state ?? '—'));
   appendDetailRow(grid, t('detailSchedule'), goalMetaText(g), g.errorCount ? 'countdown--err' : '', g.goalId);
   status.append(statusLabel, grid);
