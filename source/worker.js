@@ -727,7 +727,7 @@ module.exports = {
   // an owner/repo/issues list URL into concrete open issues (GitHub REST,
   // anonymous), and runs the repo-binding checks — so the UI can show a
   // precise confirmation sheet before anything is written.
-  async 'loopx.resolveIntake'({ projectDir = null, objective } = {}) {
+  async 'loopx.resolveIntake'({ projectDir = null, projectDirs = null, objective } = {}) {
     const text = String(objective || '').trim();
     if (!text) throw new Error('loopx.resolveIntake: objective is required');
     dbgWorker('resolveIntake:start', `text=${text.slice(0, 120)}`);
@@ -774,11 +774,26 @@ module.exports = {
         projectRepo: null,
       };
     }
+    // No global checkout, or the caller deliberately bypassed it: before
+    // offering a fresh clone, look for an existing checkout of this exact
+    // repository among the console's recorded project directories. A follow-up
+    // issue then reuses the clone instead of cloning the repo twice.
+    let reuseDir = null;
+    if (requestedRepos.length === 1 && !projectDir) {
+      for (const dir of (Array.isArray(projectDirs) ? projectDirs : [])) {
+        if (typeof dir !== 'string' || !dir) continue;
+        if (projectGithubRepository(dir) === requestedRepos[0]) {
+          reuseDir = dir;
+          dbgWorker('resolveIntake:reuse', `${requestedRepos[0]} -> ${dir}`);
+          break;
+        }
+      }
+    }
     // No local checkout at all: direction C — offer auto-clone into the
     // MiniApp's own data directory. Verify the repository exists first so a
     // typo fails before the user confirms.
     let autoClone = false;
-    if (requestedRepos.length === 1 && !projectDir) {
+    if (requestedRepos.length === 1 && !projectDir && !reuseDir) {
       let exists = true;
       try {
         dbgWorker('resolveIntake:repoExists:start', requestedRepos[0]);
@@ -829,6 +844,7 @@ module.exports = {
       kind,
       repo: (refs[0] && refs[0].repo) || projectRepo || null,
       projectRepo,
+      reuseDir,
       issues,
       truncated,
       prCount: issueRefs.filter((ref) => ref.kind === 'pr').length,

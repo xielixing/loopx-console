@@ -1,6 +1,6 @@
 # LoopX Console 产品规格（输入契约）
 
-版本：v1.1（方向 C：自动克隆） · 适用：loopx-console 全部发布形态（源码导入分发）。
+版本：v1.2（方向 C：自动克隆 + 同仓库复用） · 适用：loopx-console 全部发布形态（源码导入分发）。
 
 ## 1. 产品定位
 
@@ -16,12 +16,17 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 
 任务绑定的本地仓库目录按以下顺序解析：
 
-1. **自动克隆（默认）**：未选择本地 checkout 时，目标仓库被克隆到小应用
+1. **同仓库复用（默认优先）**：已记录的项目/克隆目录（`projectByGoal`）里
+   存在该仓库的 checkout 时直接复用（`reuseDir`），不再重复克隆；确认单
+   展示「无需重新克隆」。单个 issue 默认「追加」到该仓库进行中的任务
+   （guide 模式），也可以新建任务。
+2. **自动克隆（默认）**：没有可复用的 checkout 时，目标仓库被克隆到小应用
    自己的数据目录（`<appdata>/repos/<owner>-<repo>`），goal 绑定该克隆；
    克隆有进度显示（接收对象百分比），已完成仓库走缓存。GitHub 校验失败
    （仓库不存在/网络错误）在确认单之前就拒绝。
-2. **本地 checkout（高级选项）**：设置里选择项目目录后，任务优先绑定该
-   目录；仓库与该 checkout 不匹配时拒绝并提示。
+3. **本地 checkout（高级选项）**：设置里选择项目目录后，任务优先绑定该
+   目录；链接指向**其它仓库**时不再硬拒绝——控制台自动回退到 1/2
+   （复用或克隆独立目录）并提示，本地 checkout 绑定保持不变。
 
 - 目标目录按 goal 记录（`projectByGoal`），心跳/turn/审批命令各自使用
   所属 goal 的目录；看板聚合所有注册表（全局 + 每个项目/克隆目录）。
@@ -47,7 +52,7 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 | 自由文本、非 github.com 链接、空输入 | `unsupported_input` |
 | github.com 的其它路径（org 首页、`/settings`、`/pulls`、`/releases`、`/tree/…`、`/issues/new`、`/wiki`、commit、search、对比页等） | `unsupported_github_path`（附带被拒 URL） |
 | 一个任务里出现多个不同仓库 | `multiple_repositories` |
-| 目标仓库 ≠ 所选本地 checkout 的 GitHub remote | `repository_mismatch` |
+| 目标仓库 ≠ 所选本地 checkout 的 GitHub remote | `repository_mismatch`（UI 层回退到复用/自动克隆流程，见 §1.1） |
 | 所选目录不是该仓库的本地 checkout（无 GitHub remote） | `repository_unverified` |
 | GitHub 上不存在该仓库 | `repository_not_found` |
 | GitHub 校验请求失败（网络/限流） | `repository_lookup_failed` |
@@ -57,9 +62,11 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 
 1. 输入 → 客户端即时分类（输入框 badge：Issue / N 个 Issue / 整仓 Issues）。
 2. 提交 → `loopx.resolveIntake`（只读：分类 + 展开 issues 列表 + 仓库绑定校验；
-   未选 checkout 时校验 GitHub 仓库存在性并标记 `autoClone`）。
-3. 确认单（唯一刻意停顿）：多 issue 勾选（默认全选、截断标注）；已有进行中
-   任务时可选「新建任务」或「引导现有任务」；自动克隆模式下展示克隆说明。
+   未选 checkout 时校验 GitHub 仓库存在性并标记 `autoClone`；已记录的
+   项目目录命中同仓库时返回 `reuseDir`）。
+3. 确认单（唯一刻意停顿）：多 issue 勾选（默认全选、截断标注）；存在**同仓库**
+   进行中任务时可选「新建任务」或「引导现有任务」（单个 issue 默认引导/追加）；
+   复用模式下展示「无需重新克隆」说明。
 4. `loopx.taskIntake`（事件驱动）：`clone`（自动克隆时，带百分比进度）→
    bootstrap → register → plan/todos → refresh → 完成。
 5. 完成后记录 goal 的仓库目录（`projectByGoal`），看板与心跳使用它；

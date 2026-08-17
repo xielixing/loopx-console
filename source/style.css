@@ -36,17 +36,9 @@ button, input, select { font: inherit; }
 .brand { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
 .brand__icon { display: grid; place-items: center; color: var(--lx-accent); }
 .brand__title { margin: 0; font-size: 13px; font-weight: 650; letter-spacing: 0; }
-.project-switcher {
-  display: flex; align-items: center; gap: 7px; min-width: 0; max-width: min(360px, 32vw);
-  height: 30px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent;
-  color: var(--lx-text-soft); cursor: pointer;
-}
-.project-switcher:hover { background: var(--lx-hover); color: var(--lx-text); }
-.project-switcher:focus-visible, .btn:focus-visible, .goal:focus-visible, .archive__row:focus-visible {
+.btn:focus-visible, .goal:focus-visible, .board-more__chip:focus-visible {
   outline: 2px solid var(--lx-accent); outline-offset: 1px;
 }
-#project-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-switcher__chevron { flex: 0 0 auto; color: var(--lx-text-mute); }
 .topbar__spacer { flex: 1; }
 .runtime-status { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .presence { display: inline-flex; align-items: center; gap: 6px; color: var(--lx-text-mute); font-size: 11px; white-space: nowrap; }
@@ -87,21 +79,35 @@ button, input, select { font: inherit; }
 .composer {
   flex: 0 0 auto; padding: 9px 72px 18px 24px; background: var(--lx-bg);
 }
+.composer__pitch { width: min(1040px, 100%); margin: 0 auto 14px; text-align: center; }
+.composer__pitch h2 { margin: 0; color: var(--lx-text); font-size: 21px; font-weight: 650; }
 .composer__box {
   width: min(1040px, 100%); min-height: 118px; margin: 0 auto; overflow: hidden;
   border: 1px solid var(--lx-border-strong); border-radius: 18px; background: var(--lx-surface);
   box-shadow: 0 8px 24px rgba(0,0,0,.09);
+  transition: min-height 180ms ease;
 }
 .composer__box:focus-within { border-color: color-mix(in srgb, var(--lx-accent) 68%, var(--lx-border)); }
 #task-input {
   display: block; width: 100%; min-height: 70px; max-height: 180px; resize: none;
   padding: 17px 18px 7px; border: 0; outline: 0; background: transparent; color: var(--lx-text);
   font: 14px/1.5 var(--lx-sans); letter-spacing: 0;
+  transition: min-height 180ms ease;
 }
 #task-input::placeholder { color: var(--lx-text-mute); }
 .composer__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 3px 9px 9px 17px; }
 .composer__context { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--lx-text-mute); font-size: 11px; }
 .composer__kind { flex: 0 0 auto; padding: 2px 7px; border: 1px solid var(--lx-border); border-radius: 9px; color: var(--lx-text-soft); }
+.composer__model {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0;
+  padding: 2px 7px; border: 1px solid var(--lx-border); border-radius: 10px; color: var(--lx-text-mute);
+  cursor: pointer;
+}
+.composer__model:hover { border-color: var(--lx-border-strong); }
+.composer__model select {
+  min-width: 0; max-width: 230px; padding: 0; border: 0; outline: 0; background: transparent;
+  color: var(--lx-text-soft); font-size: 11px; cursor: pointer;
+}
 .composer__submit {
   display: grid; place-items: center; flex: 0 0 auto; width: 38px; height: 38px; padding: 0;
   border: 0; border-radius: 50%; background: var(--lx-accent); color: #fff; cursor: pointer;
@@ -113,28 +119,29 @@ button, input, select { font: inherit; }
 .composer__feedback--error { color: var(--lx-error); }
 .composer__feedback--ok { color: var(--lx-ok); }
 
-.layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* Hero mode: empty board collapses, composer rises to sit under the pitch. */
-.lx--hero .layout { flex: 0 0 auto; min-height: 0; margin-top: 13vh; }
-.lx--hero .board { min-width: 0; height: auto; padding: 0 12px 4px; overflow: visible; }
+.layout { flex: 1; min-height: 0; display: flex; flex-direction: column; transition: margin-top 180ms ease; }
+/* Hero mode: no board at all — the composer IS the app, centered vertically
+   with a one-line pitch above the box. */
+.lx--hero .layout { flex: 0 0 auto; min-height: 0; margin-top: 0; justify-content: center; padding-bottom: 4vh; }
+.lx--hero .board { display: none; }
 .lx--hero .composer { flex: 1 1 auto; padding-top: 4px; }
-.lx--hero .composer__box { min-height: 132px; }
-.lx--hero #task-input { min-height: 84px; }
+.lx--hero .composer__box { min-height: 150px; }
+.lx--hero #task-input { min-height: 96px; }
 .board {
-  display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)) 154px; gap: 10px;
-  min-width: 900px; flex: 1 1 auto; min-height: 0; height: auto; padding: 12px 12px 8px; overflow: auto; background: var(--lx-bg);
+  display: grid; grid-template-columns: repeat(3, minmax(200px, 1fr)); gap: 10px;
+  min-width: 640px; flex: 1 1 auto; min-height: 0; height: auto; padding: 12px 12px 8px; overflow: auto; background: var(--lx-bg);
 }
 .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--lx-border); border-radius: 3px; }
 .col--backlog { background: color-mix(in srgb, var(--lx-text-mute) 1.2%, var(--lx-bg)); }
-.col--ready { background: color-mix(in srgb, var(--lx-warn) 2.2%, var(--lx-bg)); }
 .col--active { background: color-mix(in srgb, var(--lx-ok) 2.2%, var(--lx-bg)); }
 .col--review { background: color-mix(in srgb, var(--lx-review) 2.2%, var(--lx-bg)); }
-.col__head { display: flex; align-items: center; gap: 7px; min-height: 43px; padding: 0 11px; border-bottom: 1px solid var(--lx-border); font-size: 12px; font-weight: 600; }
+.col__head { display: flex; flex-direction: column; gap: 3px; min-height: 56px; padding: 9px 11px; border-bottom: 1px solid var(--lx-border); font-size: 12px; font-weight: 600; }
+.col__head-row { display: flex; align-items: center; gap: 7px; }
+.col__sub { font-size: 10.5px; font-weight: 400; color: var(--lx-text-mute); }
 .col__count { margin-left: auto; color: var(--lx-text-mute); font: 11px/1 var(--lx-mono); }
 .col__body { display: flex; flex: 1; flex-direction: column; gap: 7px; min-height: 0; padding: 8px; overflow-y: auto; }
 .col__empty { padding: 14px 8px; color: var(--lx-text-mute); font-size: 11.5px; text-align: center; }
 .dot--backlog { background: var(--lx-text-mute); }
-.dot--ready { background: var(--lx-warn); }
 .dot--active { background: var(--lx-ok); }
 .dot--review { background: var(--lx-review); }
 .dot--done { background: var(--lx-accent); }
@@ -165,36 +172,31 @@ button, input, select { font: inherit; }
 .goal--terminal { min-height: 76px; background: transparent; opacity: .82; }
 .goal--terminal .goal__reason { color: var(--lx-text-soft); font-size: 12px; font-weight: 450; }
 
-.archive { display: flex; flex-direction: column; min-width: 0; min-height: 0; grid-column: 1 / -1; margin-top: 4px; max-height: 260px; border: 1px solid var(--lx-border); border-radius: 3px; background: color-mix(in srgb, var(--lx-surface) 30%, var(--lx-bg)); }
-.archive__head { display: flex; align-items: center; gap: 6px; min-height: 43px; padding: 0 11px; border-bottom: 1px solid var(--lx-border); color: var(--lx-text-soft); font-size: 11.5px; font-weight: 600; }
-.archive__body { overflow-y: auto; }
-.archive__group { border-bottom: 1px solid var(--lx-border); }
-.archive__row { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 41px; padding: 0 11px; border: 0; background: transparent; color: var(--lx-text-soft); text-align: left; cursor: pointer; }
-.archive__row:hover { background: var(--lx-hover); }
-.archive__count { margin-left: auto; color: var(--lx-text-mute); font: 11px/1 var(--lx-mono); }
-.archive__cards { display: flex; flex-direction: column; gap: 6px; padding: 0 7px 7px; }
-.archive__group:not(.is-open) .archive__cards { display: none; }
-.archive__group:not(.is-open) .archive__chevron { transform: rotate(-90deg); }
-.archive__chevron { color: var(--lx-text-mute); transition: transform 120ms; }
+/* "More" footer: terminal/stopped/error goals and other-host goals collapse
+   into quiet chips under the three columns; nothing renders when empty. */
+.board-more { display: flex; flex-direction: column; gap: 8px; grid-column: 1 / -1; margin-top: 4px; }
+.board-more__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.board-more__chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border: 1px solid var(--lx-border); border-radius: 12px; background: transparent;
+  color: var(--lx-text-soft); font-size: 11px; cursor: pointer;
+}
+.board-more__chip b { color: var(--lx-text-mute); font: 600 11px/1 var(--lx-mono); }
+.board-more__chip:hover, .board-more__chip.is-open { border-color: var(--lx-border-strong); background: var(--lx-hover); color: var(--lx-text); }
+.board-more__panel {
+  display: grid; grid-template-columns: repeat(3, minmax(200px, 1fr)); gap: 7px;
+  padding: 8px; border: 1px solid var(--lx-border); border-radius: 6px;
+  background: color-mix(in srgb, var(--lx-surface) 30%, var(--lx-bg));
+}
+.board-more__rows { display: flex; flex-direction: column; gap: 6px; grid-column: 1 / -1; }
+.board-more__hint { margin: 0 0 2px; color: var(--lx-text-mute); font-size: 11px; }
 
-/* v3.2: other-host goals live below the board, full width, unmonitored. */
-.other-tasks { grid-column: 1 / -1; margin-top: 4px; }
-.other-tasks__body { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; max-height: 240px; overflow-y: auto; }
-.other-tasks__hint { margin: 0 0 2px; color: var(--lx-text-mute); font-size: 11px; }
+/* other-host rows inside the "more" footer */
 .other-tasks__row { display: flex; align-items: center; gap: 10px; padding: 6px 9px; border: 1px solid var(--lx-border); border-radius: 6px; background: color-mix(in srgb, var(--lx-surface) 40%, var(--lx-bg)); }
 .other-tasks__meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .other-tasks__id { font: 11px/1.3 var(--lx-mono); color: var(--lx-text-soft); }
 .other-tasks__text { color: var(--lx-text-mute); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .other-tasks .btn { flex: 0 0 auto; padding: 4px 12px; font-size: 11.5px; }
-
-.empty { display: flex; grid-column: 1 / -1; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lx-text-mute); font-size: 12px; }
-
-/* First-run hero: the empty board IS the pitch — a big centered prompt that
-   hands off to the composer right below it. */
-.hero { gap: 12px; padding-bottom: 6vh; }
-.hero__badge { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: color-mix(in srgb, var(--lx-accent) 12%, transparent); color: var(--lx-accent); }
-.hero__title { margin: 0; color: var(--lx-text); font-size: 21px; font-weight: 650; }
-.hero__hint { margin: 0; max-width: 480px; color: var(--lx-text-soft); font-size: 12.5px; line-height: 1.6; text-align: center; }
 
 .composer__chip {
   flex: 0 0 auto; padding: 4px 10px; border: 1px solid var(--lx-border); border-radius: 11px;
@@ -324,7 +326,7 @@ button, input, select { font: inherit; }
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; }
   .project-switcher { flex: 1; max-width: none; }
-  .board { min-width: 900px; }
+  .board { min-width: 640px; }
   .composer { padding: 9px 64px 14px 12px; }
   .composer__box { border-radius: 16px; }
 }

@@ -46,11 +46,20 @@
 
     <main class="layout">
       <section class="composer" aria-label="Create task">
+        <div id="composer-pitch" class="composer__pitch" hidden>
+          <h2 data-i18n="heroTitle">粘贴链接，自动修复 GitHub Issues</h2>
+        </div>
         <div id="task-feedback" class="composer__feedback" role="status" hidden></div>
         <div class="composer__box">
           <textarea id="task-input" rows="2" maxlength="4000" data-i18n-placeholder="taskPlaceholder" placeholder="粘贴 GitHub Issue / 仓库 / Issues 列表链接，可附加修复要求"></textarea>
           <div class="composer__footer">
-            <div class="composer__context"><span id="task-kind" class="composer__kind" hidden></span></div>
+            <div class="composer__context">
+              <label class="composer__model" data-i18n-attr="title" data-i18n="composerModelTitle">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5 10 6l4.5 2L10 10l-2 4.5L6 10 1.5 8 6 6z"/></svg>
+                <select id="composer-model"></select>
+              </label>
+              <span id="task-kind" class="composer__kind" hidden></span>
+            </div>
             <button id="btn-create-task" class="composer__submit" type="button" data-i18n-title="taskCreate">
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5V3.5M4.5 7 8 3.5 11.5 7"/></svg>
               <span class="sr-only" data-i18n="taskCreate">创建任务</span>
@@ -58,17 +67,7 @@
           </div>
         </div>
       </section>
-      <section id="goal-list" class="board">
-        <div id="goals-empty" class="empty hero">
-          <div class="hero__badge" aria-hidden="true">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 3a9 9 0 1 0 9 9"/><path d="M21 3v6h-6"/><circle cx="12" cy="12" r="3"/>
-            </svg>
-          </div>
-          <h2 class="hero__title" data-i18n="heroTitle">粘贴链接，自动修复 GitHub Issues</h2>
-          <p class="hero__hint" data-i18n="heroHint">一个 Issue 链接修复单个问题；仓库或 Issues 列表链接会列出全部 open issues 供你勾选，然后由 BitFun Agent 逐个修复。</p>
-        </div>
-      </section>
+      <section id="goal-list" class="board"></section>
     </main>
 
     <dialog id="dlg-goal" class="drawer">

@@ -53,10 +53,11 @@ const I18N = {
     hbChecking: '正在检查…',
     runCancelled: '运行已取消',
     groupBacklog: '待处理',
-    groupReady: '待执行',
     groupActive: '进行中',
     groupReview: '等你处理',
-    hiddenStates: '隐藏状态',
+    colSubReview: '阻塞 · 需要你批准后继续',
+    colSubActive: 'Agent 正在执行',
+    colSubBacklog: '异步 · 按计划轮询推进',
     groupDone: '已完成',
     detailOverview: '当前动作',
     detailStatus: '状态',
@@ -67,7 +68,6 @@ const I18N = {
     detailLastRun: '最近执行',
     detailSchedule: '下次轮询',
     heroTitle: '粘贴链接，自动修复 GitHub Issues',
-    heroHint: '一个 Issue 链接修复单个问题；仓库或 Issues 列表链接会列出全部 open issues 供你勾选，然后由 BitFun Agent 逐个修复。需要你审批时会在这里提醒你。',
     taskPlaceholder: '粘贴 GitHub Issue / 仓库首页 / Issues 列表链接，可附加修复要求',
     taskGoalUnsupported: '请粘贴 GitHub Issue、PR、仓库首页或 Issues 列表链接（自由目标暂未开放）',
     taskUnsupportedPath: (u) => `不支持的 GitHub 链接：${u}。请粘贴 Issue、PR、仓库首页或 Issues 列表链接`,
@@ -136,6 +136,9 @@ const I18N = {
     stageClone: '正在克隆仓库…',
     stageClonePercent: (p) => `正在克隆仓库… ${p}%`,
     intakeCloneNote: (repo) => `将自动克隆 ${repo} 到小应用数据目录并开始修复（无需本地 checkout）。`,
+    intakeReuseNote: (repo) => `已找到 ${repo} 的本地 checkout，无需重新克隆。`,
+    taskCloneOtherRepo: (expected, actual) => `本地目录绑定的是 ${actual}；将把 ${expected} 克隆到独立目录处理。`,
+    composerModelTitle: '新任务执行模型',
     openRepoDir: '打开仓库目录',
     otherTasksTitle: '本机其它 loopx 任务',
     otherTasksHint: '非本控制台创建，默认不监控。接管后进入看板并开始心跳轮询。',
@@ -205,11 +208,12 @@ const I18N = {
     hbNext: (t) => `next tick in ${t}`,
     hbChecking: 'checking now…',
     runCancelled: 'run cancelled',
-    groupBacklog: 'Backlog',
-    groupReady: 'Ready',
+    groupBacklog: 'Queued',
     groupActive: 'In progress',
     groupReview: 'Needs you',
-    hiddenStates: 'Hidden states',
+    colSubReview: 'Blocking · continues after your approval',
+    colSubActive: 'The agent is working',
+    colSubBacklog: 'Async · progresses on schedule',
     groupDone: 'Done',
     detailOverview: 'Current action',
     detailStatus: 'Status',
@@ -220,7 +224,6 @@ const I18N = {
     detailLastRun: 'Last run',
     detailSchedule: 'Next poll',
     heroTitle: 'Paste a link, auto-fix GitHub issues',
-    heroHint: 'One issue link fixes a single issue; a repository or issues-list link enumerates all open issues for you to pick, then the BitFun agent fixes them one by one. You are alerted here whenever your approval is needed.',
     taskPlaceholder: 'Paste a GitHub issue / repository home / issues-list link, optionally with fix instructions',
     taskGoalUnsupported: 'Paste a GitHub issue, pull request, repository home, or issues-list link (free-form goals are not open yet)',
     taskUnsupportedPath: (u) => `Unsupported GitHub link: ${u}. Paste an issue, a pull request, the repository home, or its issues list.`,
@@ -289,6 +292,9 @@ const I18N = {
     stageClone: 'Cloning repository…',
     stageClonePercent: (p) => `Cloning repository… ${p}%`,
     intakeCloneNote: (repo) => `${repo} will be cloned into the MiniApp data directory (no local checkout needed).`,
+    intakeReuseNote: (repo) => `Found the local checkout of ${repo} — no re-cloning.`,
+    taskCloneOtherRepo: (expected, actual) => `The local checkout is bound to ${actual}; ${expected} will be cloned into its own directory instead.`,
+    composerModelTitle: 'Execution model for new tasks',
     openRepoDir: 'Open repository folder',
     otherTasksTitle: 'Other local loopx goals',
     otherTasksHint: 'Created by other loopx hosts; not monitored until adopted.',
@@ -343,7 +349,7 @@ const S = {
   activeGoalId: null,
   intakeDraft: null,
   pendingIntake: null, // resolveIntake result awaiting sheet confirmation
-  archiveOpen: new Set(),
+  moreOpen: new Set(),
   logs: [],
 };
 
@@ -412,6 +418,12 @@ function fillModelSelect(select, currentValue, includeFollowGlobal) {
     option.selected = currentValue === model.id;
     select.appendChild(option);
   }
+}
+
+// The composer carries a compact copy of the model default (right where the
+// user submits); Settings keeps the full row. Both stay in sync.
+function syncComposerModel() {
+  fillModelSelect(document.getElementById('composer-model'), S.config.defaultModel || 'auto', false);
 }
 
 function newGoalState(goalId, info) {
@@ -819,12 +831,17 @@ function isGated(g) {
 }
 
 // The board mirrors an issue tracker, but attention comes first: the review
-// column ("needs you") is pinned leftmost, then the automatic flow columns.
-const PRIMARY_GROUPS = ['review', 'active', 'ready', 'backlog'];
+// column ("needs you", blocking) is pinned leftmost, then the one thing that
+// is running, then everything queued (async). Terminal/stopped/error goals
+// never get their own column — they collapse into the quiet "more" footer.
+const PRIMARY_GROUPS = ['review', 'active', 'backlog'];
 const ARCHIVE_GROUPS = ['done', 'paused', 'error'];
 const GROUP_I18N_KEY = {
-  backlog: 'groupBacklog', ready: 'groupReady', active: 'groupActive', review: 'groupReview',
+  backlog: 'groupBacklog', active: 'groupActive', review: 'groupReview',
   done: 'groupDone', paused: 'groupPaused', error: 'groupError',
+};
+const GROUP_SUB_KEY = {
+  review: 'colSubReview', active: 'colSubActive', backlog: 'colSubBacklog',
 };
 
 function isTerminal(g) {
@@ -839,7 +856,6 @@ function goalGroup(g) {
   if (g.errorCount > 0) return 'error';
   if (g.stopped) return 'paused';
   if (isGated(g)) return 'review';
-  if (g.last?.shouldRun === true) return 'ready';
   return 'backlog';
 }
 
@@ -936,7 +952,7 @@ function buildIntakeCard(draft) {
   const head = document.createElement('div');
   head.className = 'goal__head';
   const dot = document.createElement('span');
-  dot.className = 'dot dot--ready';
+  dot.className = 'dot dot--backlog';
   const id = document.createElement('span');
   id.className = 'goal__id';
   id.textContent = t('taskPendingLabel');
@@ -987,22 +1003,11 @@ async function adoptGoal(g, btn) {
   }
 }
 
-function buildOtherGoalsSection(goals) {
-  const aside = document.createElement('aside');
-  aside.className = 'archive other-tasks';
-  const head = document.createElement('div');
-  head.className = 'archive__head';
-  const title = document.createElement('span');
-  title.textContent = t('otherTasksTitle');
-  const count = document.createElement('span');
-  count.className = 'archive__count';
-  count.textContent = String(goals.length);
-  head.append(title, count);
-  aside.appendChild(head);
+function buildOtherGoalsRows(goals) {
   const body = document.createElement('div');
-  body.className = 'other-tasks__body';
+  body.className = 'board-more__rows';
   const hint = document.createElement('p');
-  hint.className = 'other-tasks__hint';
+  hint.className = 'board-more__hint';
   hint.textContent = t('otherTasksHint');
   body.appendChild(hint);
   for (const g of goals) {
@@ -1027,8 +1032,7 @@ function buildOtherGoalsSection(goals) {
     row.append(meta, btn);
     body.appendChild(row);
   }
-  aside.appendChild(body);
-  return aside;
+  return body;
 }
 
 function buildGoalCard(g, compact = false) {
@@ -1413,6 +1417,23 @@ function displayFingerprint() {
 
 let lastFingerprint = '';
 
+// Rapid bursts of state changes (task-intake progress, goal refresh, first
+// poll) would each rebuild the whole board; coalesce them into one repaint
+// per animation frame so the board doesn't flash through intermediate DOMs.
+let renderQueued = false;
+let renderQueuedForce = false;
+function requestRender(force = false) {
+  if (force) renderQueuedForce = true;
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => {
+    renderQueued = false;
+    const flushForce = renderQueuedForce;
+    renderQueuedForce = false;
+    renderAllGoals(flushForce);
+  });
+}
+
 function renderAllGoals(force = false) {
   const list = document.getElementById('goal-list');
   const active = document.activeElement;
@@ -1429,45 +1450,53 @@ function renderAllGoals(force = false) {
   }
   lastFingerprint = fp;
 
-  const empty = document.getElementById('goals-empty');
-  for (const child of [...list.children]) {
-    if (child.id !== 'goals-empty') child.remove();
-  }
+  for (const child of [...list.children]) child.remove();
   // v3.2: the board shows only goals this console owns; other-host goals are
   // listed separately and stay unmonitored until adopted.
   const owned = [];
   const other = [];
   for (const g of S.goals.values()) (isOwnedGoal(g.goalId) ? owned : other).push(g);
   const hasVisibleTasks = owned.length > 0 || !!S.intakeDraft;
-  empty.hidden = hasVisibleTasks;
   // Hero mode: with nothing on the board, the app IS the input box — the
-  // layout collapses so the composer sits centered right under the pitch.
+  // board collapses and the composer rises to the center of the viewport.
   document.getElementById('app').classList.toggle('lx--hero', !hasVisibleTasks);
+  document.getElementById('composer-pitch').hidden = hasVisibleTasks;
   if (!hasVisibleTasks) {
     updateHeaderStatus();
     return;
   }
   const buckets = new Map([...PRIMARY_GROUPS, ...ARCHIVE_GROUPS].map((k) => [k, []]));
   for (const g of owned) buckets.get(goalGroup(g)).push(g);
+  // Queued column: runs the scheduler wants NOW first, then by due time.
+  buckets.get('backlog').sort((a, b) => (
+    (b.last?.shouldRun ? 1 : 0) - (a.last?.shouldRun ? 1 : 0)
+  ) || (a.nextDueAt - b.nextDueAt));
   for (const key of PRIMARY_GROUPS) {
     const goals = buckets.get(key);
-    const pendingCount = key === 'ready' && S.intakeDraft ? 1 : 0;
+    const pendingCount = key === 'backlog' && S.intakeDraft ? 1 : 0;
     const col = document.createElement('div');
     col.className = `col col--${key}`;
 
     const head = document.createElement('div');
     head.className = 'col__head';
+    const row = document.createElement('div');
+    row.className = 'col__head-row';
     const dot = document.createElement('span');
     dot.className = `dot dot--${key}`;
-    head.appendChild(dot);
+    row.appendChild(dot);
     const title = document.createElement('span');
     title.className = 'col__title';
     title.textContent = t(GROUP_I18N_KEY[key]);
-    head.appendChild(title);
+    row.appendChild(title);
     const count = document.createElement('span');
     count.className = 'col__count';
-    count.textContent = String(goals.length);
-    head.appendChild(count);
+    count.textContent = String(goals.length + pendingCount);
+    row.appendChild(count);
+    head.appendChild(row);
+    const sub = document.createElement('div');
+    sub.className = 'col__sub';
+    sub.textContent = t(GROUP_SUB_KEY[key]);
+    head.appendChild(sub);
     col.appendChild(head);
 
     const body = document.createElement('div');
@@ -1478,61 +1507,63 @@ function renderAllGoals(force = false) {
       none.textContent = t('colEmpty');
       body.appendChild(none);
     }
-    if (key === 'ready' && S.intakeDraft) body.appendChild(buildIntakeCard(S.intakeDraft));
+    if (key === 'backlog' && S.intakeDraft) body.appendChild(buildIntakeCard(S.intakeDraft));
     for (const g of goals) body.appendChild(buildGoalCard(g));
     col.appendChild(body);
     list.appendChild(col);
   }
-  const archive = document.createElement('aside');
-  archive.className = 'archive';
-  const archiveHead = document.createElement('div');
-  archiveHead.className = 'archive__head';
-  const archiveTitle = document.createElement('span');
-  archiveTitle.textContent = t('hiddenStates');
-  const archiveTotal = document.createElement('span');
-  archiveTotal.className = 'archive__count';
-  archiveTotal.textContent = String(ARCHIVE_GROUPS.reduce((sum, key) => sum + buckets.get(key).length, 0));
-  archiveHead.append(archiveTitle, archiveTotal);
-  archive.appendChild(archiveHead);
-  const archiveBody = document.createElement('div');
-  archiveBody.className = 'archive__body';
+  // Terminal/stopped/error goals and other-host goals share one quiet footer
+  // of chips — rendered only when something actually hides behind it.
+  const moreGroups = [];
   for (const key of ARCHIVE_GROUPS) {
-    const goals = buckets.get(key);
-    if (goals.length === 0) continue;
-    const group = document.createElement('section');
-    group.className = 'archive__group' + (S.archiveOpen.has(key) ? ' is-open' : '');
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'archive__row';
-    const chevron = document.createElement('span');
-    chevron.className = 'archive__chevron';
-    chevron.textContent = '⌄';
-    const dot = document.createElement('span');
-    dot.className = `dot dot--${key}`;
-    const label = document.createElement('span');
-    label.textContent = t(GROUP_I18N_KEY[key]);
-    const count = document.createElement('span');
-    count.className = 'archive__count';
-    count.textContent = String(goals.length);
-    row.append(chevron, dot, label, count);
-    row.onclick = () => {
-      if (S.archiveOpen.has(key)) S.archiveOpen.delete(key); else S.archiveOpen.add(key);
-      group.classList.toggle('is-open', S.archiveOpen.has(key));
-    };
-    const cards = document.createElement('div');
-    cards.className = 'archive__cards';
-    for (const g of goals) cards.appendChild(buildGoalCard(g, true));
-    group.append(row, cards);
-    archiveBody.appendChild(group);
+    if (buckets.get(key).length > 0) moreGroups.push({ key, goals: buckets.get(key) });
   }
-  archive.appendChild(archiveBody);
-  list.appendChild(archive);
-  if (other.length > 0) list.appendChild(buildOtherGoalsSection(other));
+  if (other.length > 0) moreGroups.push({ key: 'other', goals: other });
+  if (moreGroups.length > 0) list.appendChild(buildMoreFooter(moreGroups));
   if (S.activeGoalId) {
     const activeGoal = S.goals.get(S.activeGoalId);
     if (activeGoal) renderGoalDetails(activeGoal);
   }
   updateHeaderStatus();
+}
+
+// One chip per hidden group; clicking toggles that group's compact cards.
+function buildMoreFooter(groups) {
+  const footer = document.createElement('footer');
+  footer.className = 'board-more';
+  const chips = document.createElement('div');
+  chips.className = 'board-more__chips';
+  for (const group of groups) {
+    const open = S.moreOpen.has(group.key);
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'board-more__chip' + (open ? ' is-open' : '');
+    const dot = document.createElement('span');
+    dot.className = `dot dot--${group.key === 'other' ? 'backlog' : group.key}`;
+    const label = document.createElement('span');
+    label.textContent = group.key === 'other' ? t('otherTasksTitle') : t(GROUP_I18N_KEY[group.key]);
+    const count = document.createElement('b');
+    count.textContent = String(group.goals.length);
+    chip.append(dot, label, count);
+    chip.onclick = () => {
+      if (S.moreOpen.has(group.key)) S.moreOpen.delete(group.key); else S.moreOpen.add(group.key);
+      renderAllGoals(true);
+    };
+    chips.appendChild(chip);
+  }
+  footer.appendChild(chips);
+  for (const group of groups) {
+    if (!S.moreOpen.has(group.key)) continue;
+    const panel = document.createElement('div');
+    panel.className = 'board-more__panel';
+    if (group.key === 'other') {
+      panel.appendChild(buildOtherGoalsRows(group.goals));
+    } else {
+      for (const g of group.goals) panel.appendChild(buildGoalCard(g, true));
+    }
+    footer.appendChild(panel);
+  }
+  return footer;
 }
 
 // Header presence badge + global next-tick countdown: the single bit that
@@ -1788,7 +1819,7 @@ async function refreshGoals() {
     for (const goalId of [...S.goals.keys()]) {
       if (!fresh.has(goalId)) S.goals.delete(goalId);
     }
-    renderAllGoals(true);
+    requestRender(true);
     for (const g of S.goals.values()) {
       if (g.monitoring && g.nextDueAt === 0) pollGoal(g);
     }
@@ -1846,6 +1877,7 @@ document.getElementById('btn-retry-detect').addEventListener('click', async () =
 document.getElementById('btn-settings').addEventListener('click', () => {
   document.getElementById('set-prefix').value = S.config.argvPrefix ? JSON.stringify(S.config.argvPrefix) : '';
   document.getElementById('set-srcdir').value = S.config.srcDir || '';
+  fillModelSelect(document.getElementById('set-model'), S.config.defaultModel || 'auto', false);
   updateProjectValue();
   const dlg = document.getElementById('dlg-settings');
   dlg.returnValue = 'cancel'; // avoid stale 'save' from a previous open
@@ -1865,6 +1897,7 @@ document.getElementById('btn-settings').addEventListener('click', () => {
     S.config.srcDir = document.getElementById('set-srcdir').value.trim();
     S.config.defaultModel = document.getElementById('set-model').value || 'auto';
     await saveConfig();
+    syncComposerModel();
     if (await detect()) refreshGoals();
   };
   dlg.showModal();
@@ -1985,7 +2018,13 @@ function openIntakeSheet(resolved, objective) {
   const dlg = document.getElementById('dlg-intake');
   const isList = resolved.kind === 'issues-list';
   const hasIssues = resolved.issues.length > 0;
-  const guidable = [...S.goals.values()].filter((g) => !isTerminal(g));
+  // Guide targets: goals bound to the same checkout. A fresh auto-clone for a
+  // new repository has nothing to guide into — never offer cross-repo guides.
+  const boundDir = resolved.reuseDir
+    || (!resolved.bypassCheckout ? S.config.projectDir : null)
+    || null;
+  const guidable = [...S.goals.values()].filter((g) =>
+    !isTerminal(g) && boundDir && goalProjectDir(g.goalId) === boundDir);
 
   document.getElementById('intake-title').textContent = isList
     ? t('intakeTitleList')
@@ -2001,6 +2040,11 @@ function openIntakeSheet(resolved, objective) {
   else summary.textContent = objective;
   if (resolved.autoClone) {
     summary.textContent += `\n${t('intakeCloneNote', resolved.repo || '?')}`;
+  } else if (resolved.reuseDir) {
+    summary.textContent += `\n${t('intakeReuseNote', resolved.repo || '?')}`;
+  }
+  if (resolved.fellBackFromCheckout) {
+    summary.textContent += `\n${t('taskCloneOtherRepo', resolved.repo || '?', resolved.fellBackFromCheckout)}`;
   }
 
   // issue checklist (only for multi/list intake; single issue needs no picking)
@@ -2050,7 +2094,10 @@ function openIntakeSheet(resolved, objective) {
       opt.textContent = `${t('intakeModeGuide')}: ${g.goalId}`;
       modeSelect.appendChild(opt);
     }
-    modeSelect.value = '';
+    // Appending a follow-up issue to the repo's running task is the common
+    // intent — default single issues to the first same-repo goal; batch
+    // intake still defaults to a fresh task.
+    modeSelect.value = resolved.issues.length === 1 ? guidable[0].goalId : '';
     modeSelect.onchange = updateIntakeCount;
   }
 
@@ -2108,24 +2155,30 @@ function startTaskIntake(pending, guideGoalId) {
   const agentId = guideGoalId
     ? (S.goals.get(guideGoalId)?.agentId || resolveDefaultAgent())
     : resolveDefaultAgent();
+  // Binding order: the guided goal's own checkout, then a reuse directory the
+  // resolver matched to this repository, then the global setting. Auto-clone
+  // only fires when none of those exists.
+  const projectDir = guideGoalId
+    ? goalProjectDir(guideGoalId)
+    : (resolved.reuseDir || (!resolved.bypassCheckout ? S.config.projectDir : null));
   S.intakeDraft = { objective, stage: guideGoalId ? t('taskCreating') : t('stageBootstrap') };
   setComposerBusy(true, t('taskCreating'));
   renderAllGoals(true);
   app.call('loopx.taskIntake', {
     argvPrefix: S.config.argvPrefix,
     srcDir: S.config.srcDir || null,
-    projectDir: guideGoalId ? goalProjectDir(guideGoalId) : S.config.projectDir,
+    projectDir,
     objective,
     agentId,
     mode: guideGoalId ? 'guide' : 'new',
     goalId: guideGoalId,
-    autoClone: !guideGoalId && Boolean(resolved.autoClone),
+    autoClone: !guideGoalId && !projectDir && Boolean(resolved.autoClone),
     issues: issues.length ? issues : null,
   }).then((res) => {
     if (res && res.ok === false) {
       // Synchronous refusal (repo checks) — no done event will follow.
       S.intakeDraft = null;
-      renderAllGoals(true);
+      requestRender(true);
       setComposerBusy(false, '');
       const message = res.code === 'repository_mismatch'
         ? t('taskRepoMismatch', res.requestedRepo, res.projectRepo || '?')
@@ -2137,7 +2190,7 @@ function startTaskIntake(pending, guideGoalId) {
     // progress + completion arrive on worker:taskIntake:* events
   }).catch((err) => {
     S.intakeDraft = null;
-    renderAllGoals(true);
+    requestRender(true);
     setComposerBusy(false, '');
     setTaskFeedback(String(err.message || err), 'error');
     log(`task intake error: ${err.message || err}`, true);
@@ -2157,7 +2210,10 @@ app.on('worker:taskIntake:progress', (d) => {
   };
   S.intakeDraft.stage = stages[d.stage] || t('taskCreating');
   setTaskFeedback(S.intakeDraft.stage);
-  renderAllGoals(true);
+  // Patch the pending card's stage line in place — a full board rebuild per
+  // progress event (clone percent streams) is exactly the flicker we remove.
+  const live = document.querySelector('#goal-list .goal--pending .goal__activity-text');
+  if (live) live.textContent = S.intakeDraft.stage;
 });
 
 app.on('worker:taskIntake:done', async (result) => {
@@ -2175,7 +2231,7 @@ app.on('worker:taskIntake:done', async (result) => {
       message = t('taskRepoUnverified', result.requestedRepo || '?');
     }
     S.intakeDraft = null;
-    renderAllGoals(true);
+    requestRender(true);
     setComposerBusy(false, '');
     setTaskFeedback(message, 'error');
     log(`task intake: ${message}`, true);
@@ -2215,12 +2271,12 @@ app.on('worker:taskIntake:done', async (result) => {
       goal.autoRun = true;
       goal.autoFailCount = 0;
     }
-    renderAllGoals(true);
+    requestRender(true);
     // refreshGoals already polled the goal; a should_run=true decision fires
     // the first turn through maybeAutoRun — one launch path, no races.
     pollNow(goal, { force: true });
   } else {
-    renderAllGoals(true);
+    requestRender(true);
   }
 });
 
@@ -2247,9 +2303,29 @@ async function createTaskFromInput() {
   try {
     resolved = await app.call('loopx.resolveIntake', {
       projectDir: S.config.projectDir,
+      projectDirs: projectRegistryDirs(),
       objective,
     });
-    dbgUi('createTask:resolved', JSON.stringify({ ok: resolved.ok, code: resolved.code, kind: resolved.kind, autoClone: resolved.autoClone, issues: resolved.issues && resolved.issues.length }));
+    // The bound checkout is a different repository than the link: fall back
+    // to the clone-directory path (auto-clone or reuse) so one console can
+    // work across repositories without touching Settings.
+    if (!resolved.ok && resolved.code === 'repository_mismatch') {
+      const boundRepo = resolved.projectRepo;
+      dbgUi('createTask:mismatchFallback', `${resolved.requestedRepo} vs ${boundRepo}`);
+      resolved = await app.call('loopx.resolveIntake', {
+        projectDir: null,
+        projectDirs: Object.values(S.config.projectByGoal || {}).filter(Boolean),
+        objective,
+      });
+      if (resolved.ok && resolved.repo && boundRepo) {
+        // The global checkout must not leak back into binding for THIS repo:
+        // bypassCheckout marks the fallback so reuse/clone decisions ignore it.
+        resolved.fellBackFromCheckout = boundRepo;
+        resolved.bypassCheckout = true;
+        log(`repo switch: new task targets ${resolved.repo} (checkout was ${boundRepo})`);
+      }
+    }
+    dbgUi('createTask:resolved', JSON.stringify({ ok: resolved.ok, code: resolved.code, kind: resolved.kind, reuseDir: resolved.reuseDir || null, autoClone: resolved.autoClone, issues: resolved.issues && resolved.issues.length }));
   } catch (err) {
     dbgUi('createTask:resolveError', String(err && err.message || err));
     setComposerBusy(false, '');
@@ -2284,8 +2360,13 @@ async function createTaskFromInput() {
   }
   setTaskFeedback('');
   // The sheet exists for real decisions: which issues, and new-vs-guide.
-  // A plain goal with nothing else running has neither — create directly.
-  const guidable = [...S.goals.values()].filter((g) => !isTerminal(g));
+  // Guide targets are limited to goals bound to the SAME checkout, so a
+  // follow-up issue appends to its own repo's task and never cross-pollinates.
+  const boundDir = resolved.reuseDir
+    || (!resolved.bypassCheckout ? S.config.projectDir : null)
+    || null;
+  const guidable = [...S.goals.values()].filter((g) =>
+    !isTerminal(g) && boundDir && goalProjectDir(g.goalId) === boundDir);
   if (resolved.issues.length < 2 && guidable.length === 0) {
     startTaskIntake({ resolved, objective, selected: new Set(resolved.issues.map((i) => i.url)) }, null);
     return;
@@ -2304,6 +2385,12 @@ document.getElementById('task-input').addEventListener('keydown', (event) => {
   createTaskFromInput();
 });
 document.getElementById('btn-create-task').addEventListener('click', createTaskFromInput);
+document.getElementById('composer-model').addEventListener('change', async () => {
+  S.config.defaultModel = document.getElementById('composer-model').value || 'auto';
+  fillModelSelect(document.getElementById('set-model'), S.config.defaultModel, false);
+  await saveConfig();
+  log(t('modelChanged', S.config.defaultModel));
+});
 
 
 // Dialog cancel buttons are type=button (a submit-type Cancel placed first
@@ -2334,7 +2421,6 @@ function applyI18n() {
     const value = t(el.getAttribute('data-i18n-placeholder'));
     if (typeof value === 'string') el.placeholder = value;
   });
-  updateProjectLabel();
   updateTaskKind();
   // Dynamic text the static pass just clobbered: the intake sheet's
   // count-driven confirm label.
@@ -2384,6 +2470,7 @@ window.addEventListener('beforeunload', () => {
     dbgUi('boot:modelsError', String(err && err.message || err));
   }
   fillModelSelect(document.getElementById('set-model'), S.config.defaultModel || 'auto', false);
+  syncComposerModel();
   applyI18n();
   startCountdownLoop();
   updateHeaderStatus();
