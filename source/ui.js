@@ -367,6 +367,10 @@ const S = {
   countdownTimer: null,
   paused: false,
   renderPending: false,
+  // A refill of the composer target select was skipped because the user had
+  // the dropdown open (swapping options under a popup closes it); flush once
+  // the pick settles.
+  refillTargetPending: false,
   activeGoalId: null,
   intakeDraft: null,
   pendingIntake: null, // resolveIntake result awaiting sheet confirmation
@@ -452,25 +456,38 @@ function syncComposerModel() {
 
 // The composer shows where the next intake lands: a new task (default) or an
 // existing goal. The dropdown doubles as the goal picker for deletion.
+// Refills are cheap and idempotent, so callers (render, refresh, boot) may
+// invoke this freely; it never depends on the board render having completed.
 function refillComposerTarget() {
   const select = document.getElementById('composer-target');
   if (!select) return;
-  const previous = select.value;
-  select.replaceChildren();
-  const optNew = document.createElement('option');
-  optNew.value = '';
-  optNew.textContent = t('intakeModeNew');
-  select.appendChild(optNew);
-  for (const g of S.goals.values()) {
-    if (isTerminal(g)) continue;
-    const option = document.createElement('option');
-    option.value = g.goalId;
-    option.textContent = g.goalId;
-    select.appendChild(option);
+  if (document.activeElement === select) {
+    // Swapping options while the user is mid-pick would close the popup;
+    // defer to the change event, which flushes the pending refill.
+    S.refillTargetPending = true;
+    return;
   }
-  const options = [...select.options].map((o) => o.value);
-  select.value = options.includes(previous) ? previous : '';
-  updateComposerDeleteBtn();
+  try {
+    const previous = select.value;
+    select.replaceChildren();
+    const optNew = document.createElement('option');
+    optNew.value = '';
+    optNew.textContent = t('intakeModeNew');
+    select.appendChild(optNew);
+    for (const g of S.goals.values()) {
+      if (isTerminal(g)) continue;
+      const option = document.createElement('option');
+      option.value = g.goalId;
+      option.textContent = g.goalId;
+      select.appendChild(option);
+    }
+    const options = [...select.options].map((o) => o.value);
+    select.value = options.includes(previous) ? previous : '';
+    updateComposerDeleteBtn();
+    dbgUi('refillTarget', `opts=${select.options.length} goals=${S.goals.size} value=${JSON.stringify(select.value)} width=${select.clientWidth}`);
+  } catch (err) {
+    dbgUi('refillTarget:error', String(err && (err.stack || err.message) || err).slice(0, 300));
+  }
 }
 
 function updateComposerDeleteBtn() {
@@ -550,6 +567,17 @@ async function dbgUi(tag, detail) {
     DEBUG_UI_BUSY = false;
   }
 }
+
+// Uncaught UI errors must land in the diagnostic log: a silent render crash
+// is otherwise indistinguishable from a frozen app. Keep the slices short so
+// one noisy frame cannot drown the timeline.
+window.addEventListener('error', (e) => {
+  dbgUi('uiError', `${e.message || e.error || 'unknown'} @${(e.filename || '').split('/').pop()}:${e.lineno || '?'}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e && e.reason;
+  dbgUi('uiRejection', String((r && (r.stack || r.message)) || r).slice(0, 400));
+});
 
 // ── logging ───────────────────────────────────────────────
 // Diagnostic trace kept in memory for debugging; the user-facing log surface
@@ -1542,11 +1570,23 @@ function requestRender(force = false) {
   });
 }
 
+// A render skipped because an input/select had focus must run once focus
+// leaves the control — otherwise that repaint is silently dropped forever.
+document.addEventListener('focusout', (e) => {
+  if (!S.renderPending) return;
+  const el = e.target;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'SELECT')) {
+    S.renderPending = false;
+    requestRender(false);
+  }
+});
+
 function renderAllGoals(force = false) {
   if (BOOT_RENDER_COUNT < 12) {
     BOOT_RENDER_COUNT += 1;
     dbgUi('render', `#${BOOT_RENDER_COUNT} t=${bootMs()}ms force=${force} theme=${themeProbe()}`);
   }
+  try {
   const workspace = document.getElementById('workspace-root');
   const active = document.activeElement;
   if (!force && active && workspace.contains(active)
@@ -1643,6 +1683,10 @@ function renderAllGoals(force = false) {
   }
   refillComposerTarget();
   updateHeaderStatus();
+  dbgUi('renderDone', `targetOpts=${document.getElementById('composer-target')?.options.length ?? 'n/a'}`);
+  } catch (err) {
+    dbgUi('renderError', String(err && (err.stack || err.message) || err).slice(0, 500));
+  }
 }
 
 // One chip per hidden group; clicking toggles that group's compact cards.
@@ -2127,6 +2171,9 @@ async function refreshGoals() {
       if (!fresh.has(goalId)) S.goals.delete(goalId);
     }
     if (bindingChanged) await saveConfig();
+    // The composer target dropdown must not depend on the board render
+    // completing: refresh it right here too.
+    refillComposerTarget();
     requestRender(true);
     for (const g of S.goals.values()) {
       if (g.monitoring && g.nextDueAt === 0) pollGoal(g);
@@ -2657,7 +2704,13 @@ document.getElementById('composer-model').addEventListener('change', async () =>
   await saveConfig();
   log(t('modelChanged', S.config.defaultModel));
 });
-document.getElementById('composer-target').addEventListener('change', updateComposerDeleteBtn);
+document.getElementById('composer-target').addEventListener('change', () => {
+  updateComposerDeleteBtn();
+  if (S.refillTargetPending) {
+    S.refillTargetPending = false;
+    refillComposerTarget();
+  }
+});
 document.getElementById('btn-composer-delete').addEventListener('click', () => {
   const select = document.getElementById('composer-target');
   const goal = select.value ? S.goals.get(select.value) : null;
@@ -2755,6 +2808,8 @@ window.addEventListener('beforeunload', () => {
   dbgUi('boot:detected', `t=${bootMs()}ms found=${detected} theme=${themeProbe()}`);
   await goalsPromise;
   S.bootLoading = false;
+  // Fill the composer target dropdown even before the first board paint.
+  refillComposerTarget();
   const paints = performance.getEntriesByType('paint')
     .map((p) => `${p.name}@${Math.round(p.startTime)}ms`).join(' ') || '(no paint entries)';
   dbgUi('boot:done', `t=${bootMs()}ms goals=${S.goals.size} theme=${themeProbe()} paint=${paints}`);

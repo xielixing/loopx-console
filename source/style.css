@@ -112,7 +112,7 @@ button, input, select { font: inherit; }
   min-width: 0; max-width: 230px; padding: 0; border: 0; outline: 0; background: transparent;
   color: var(--lx-text-soft); font-size: 11px; cursor: pointer;
 }
-.composer__target select { max-width: 190px; }
+.composer__target select { max-width: 190px; min-width: 96px; }
 /* A picked goal flips the chip to accent: the next input guides that goal. */
 .composer__target--picked { border-color: var(--lx-accent); }
 .composer__target--picked select { color: var(--lx-accent); }
