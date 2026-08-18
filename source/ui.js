@@ -2391,6 +2391,7 @@ function openDeleteConfirm(g) {
 // Delete a task: archive its runtime and drop it from the registry (the
 // worker keeps a backup of the registry file). Irreversible from the board.
 async function deleteGoalTask(g) {
+  const name = goalDisplayName(g);
   try {
     const res = await app.call('loopx.deleteGoal', {
       argvPrefix: S.config.argvPrefix,
@@ -2399,7 +2400,7 @@ async function deleteGoalTask(g) {
       goalId: g.goalId,
     });
     if (!res.ok) throw new Error(res.error || 'delete failed');
-    log(`[${g.goalId}] ${t('taskDeleted', g.goalId)}`);
+    log(`[${g.goalId}] ${t('taskDeleted', name)}`);
     if (res.warning) log(`[${g.goalId}] ${res.warning}`, true);
     for (const map of [
       S.config.ownedGoals, S.config.monitorByGoal, S.config.agentByGoal,
@@ -2414,11 +2415,27 @@ async function deleteGoalTask(g) {
     await refreshGoals();
     saveLogs(); // the removed goal's persisted log drops out of the snapshot
     renderAllGoals(true);
+    // Visible confirmation — a silent success reads as "nothing happened".
+    setTaskFeedback(t('taskDeleted', name), 'ok');
   } catch (err) {
     const message = String(err && err.message || err);
     log(`[${g.goalId}] delete failed: ${message}`, true);
     recordGoalActivity(g, `${t('deleteTaskFailed')}: ${message}`, true);
+    // Failures must be visible even when the panel shows another goal.
+    setTaskFeedback(`${t('deleteTaskFailed')}: ${message}`, 'error');
+    openAlertDialog(t('deleteTaskFailed'), `${name}：${message}`);
   }
+}
+
+// Reusable single-confirm alert (dlg-stop with a neutral confirm label).
+function openAlertDialog(title, text) {
+  const dlg = document.getElementById('dlg-stop');
+  document.getElementById('stop-title').textContent = title;
+  document.getElementById('stop-text').textContent = text;
+  dlg.querySelector('button[value="confirm"]').textContent = t('close');
+  dlg.returnValue = 'cancel';
+  dlg.onclose = () => {};
+  dlg.showModal();
 }
 
 function openGoalDetails(g) {

@@ -1113,59 +1113,78 @@ module.exports = {
   async 'loopx.deleteGoal'({ argvPrefix = null, srcDir = null, projectDir = null, goalId } = {}) {
     if (!goalId) throw new Error('loopx.deleteGoal: goalId is required');
     dbgWorker('deleteGoal:start', `goalId=${goalId} projectDir=${projectDir || '(global)'}`);
-    const archive = await runJson(argvPrefix, projectDir, [
-      'archive-runtime', '--goal-id', goalId, '--allow-registered', '--execute',
-    ], { srcDir, timeoutMs: 120000 });
-    const archived = archive.result.code === 0 && archive.payload?.ok !== false;
+    // Archive tolerantly: the runtime may already be archived by an earlier
+    // attempt (or loopx's own archival) — that still counts as archived for
+    // our purposes, so the registry surgery below always gets its chance.
+    let archived = false;
+    let archiveError = null;
+    for (const dir of projectDir ? [projectDir, null] : [null]) {
+      try {
+        const archive = await runJson(argvPrefix, dir, [
+          'archive-runtime', '--goal-id', goalId, '--allow-registered', '--execute',
+        ], { srcDir, timeoutMs: 120000 });
+        if (archive.result.code === 0 && archive.payload?.ok !== false) {
+          archived = true;
+          archiveError = null;
+          break;
+        }
+        archiveError = archive.payload?.error || archive.result.stderr.trim() || 'archive-runtime failed';
+        // A missing source dir means it is already archived — good enough.
+        if (/does not exist|not found|already archived/i.test(archiveError)) {
+          archived = true;
+          archiveError = null;
+          break;
+        }
+      } catch (err) {
+        archiveError = String(err.message || err);
+      }
+    }
     if (!archived) {
       return {
-        ok: false,
-        goalId,
-        archived: false,
-        registryRemoved: false,
-        error: archive.payload?.error || archive.result.stderr.trim() || 'archive-runtime failed',
+        ok: false, goalId, archived: false, registryRemoved: false,
+        error: archiveError || 'archive-runtime failed',
       };
     }
-    // Registry surgery: drop the goal entry, keep a timestamped backup.
-    const registryPath = projectDir
-      ? path.join(projectDir, '.loopx', 'registry.json')
-      : resolveRegistryPath(null);
+    // Registry surgery: drop the goal entry from the project AND the global
+    // registry (loopx keeps a global route for every goal), with timestamped
+    // backups of both files.
+    const registryPaths = [...new Set([
+      projectDir ? path.join(projectDir, '.loopx', 'registry.json') : resolveRegistryPath(null),
+      resolveRegistryPath(null),
+    ])];
     let registryRemoved = false;
-    try {
-      const raw = fs.readFileSync(registryPath, 'utf8');
-      const registry = JSON.parse(raw);
-      if (Array.isArray(registry.goals)) {
-        const before = registry.goals.length;
-        registry.goals = registry.goals.filter((goal) => (goal.goal_id || goal.id) !== goalId);
-        if (registry.goals.length < before) {
-          const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-          fs.copyFileSync(registryPath, `${registryPath}.del-bak-${stamp}`);
-          registry.updated_at = new Date().toISOString();
-          fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
-          registryRemoved = true;
+    for (const registryPath of registryPaths) {
+      try {
+        const raw = fs.readFileSync(registryPath, 'utf8');
+        const registry = JSON.parse(raw);
+        if (Array.isArray(registry.goals)) {
+          const before = registry.goals.length;
+          registry.goals = registry.goals.filter((goal) => (goal.goal_id || goal.id) !== goalId);
+          if (registry.goals.length < before) {
+            const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+            fs.copyFileSync(registryPath, `${registryPath}.del-bak-${stamp}`);
+            registry.updated_at = new Date().toISOString();
+            fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+            registryRemoved = true;
+          }
         }
+      } catch (err) {
+        dbgWorker('deleteGoal:registryError', `${err.message}`);
       }
-    } catch (err) {
-      dbgWorker('deleteGoal:registryError', `${err.message}`);
     }
-    // loopx also keeps a global route for every goal; a leftover global entry
-    // collides with the next bootstrap reusing the same base id.
+    // Belt and braces: a leftover runtime directory can be re-registered by a
+    // later loopx sync and resurrect the goal — move it aside under a backup
+    // name instead of leaving it in place.
     try {
-      const globalPath = resolveRegistryPath(null);
-      const graw = fs.readFileSync(globalPath, 'utf8');
-      const greg = JSON.parse(graw);
-      if (Array.isArray(greg.goals)) {
-        const before = greg.goals.length;
-        greg.goals = greg.goals.filter((goal) => (goal.goal_id || goal.id) !== goalId);
-        if (greg.goals.length < before) {
-          const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-          fs.copyFileSync(globalPath, `${globalPath}.del-bak-${stamp}`);
-          greg.updated_at = new Date().toISOString();
-          fs.writeFileSync(globalPath, `${JSON.stringify(greg, null, 2)}\n`);
-        }
+      const goalsRoot = path.join(os.homedir(), '.codex', 'loopx', 'goals');
+      const runtimeDir = path.join(goalsRoot, goalId);
+      if (fs.existsSync(runtimeDir)) {
+        const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+        fs.renameSync(runtimeDir, `${runtimeDir}.del-bak-${stamp}`);
+        dbgWorker('deleteGoal:runtimeMoved', `${runtimeDir}.del-bak-${stamp}`);
       }
     } catch (err) {
-      dbgWorker('deleteGoal:globalRegistryError', `${err.message}`);
+      dbgWorker('deleteGoal:runtimeMoveError', `${err.message}`);
     }
     dbgWorker('deleteGoal:done', `archived=${archived} registryRemoved=${registryRemoved}`);
     return {
@@ -1173,7 +1192,7 @@ module.exports = {
       goalId,
       archived,
       registryRemoved,
-      archivePath: archive.payload?.archive_path ?? null,
+      archivePath: null,
       warning: registryRemoved ? null : 'runtime archived, but the registry entry could not be removed',
     };
   },
