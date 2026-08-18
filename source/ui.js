@@ -119,6 +119,8 @@ const I18N = {
     guideTargetNote: (id) => `将把所选 Issues 作为子任务并入现有任务：${id}`,
     composerTargetTitle: '目标：新建任务或引导现有任务',
     deleteShort: '删除',
+    deleteGoalNamed: (name) => `删除：${name}`,
+    duplicateRepoHint: (name) => `该仓库已有任务「${name}」，新 Issues 将并入该任务（一个仓库只保留一个任务）`,
     resizeHandleHint: '拖拽调整列宽',
     logBottomHint: '回到底部',
     intakeNoneSelected: '至少选择一个 Issue',
@@ -334,6 +336,8 @@ const I18N = {
     guideTargetNote: (id) => `The selected issues will be added as subtasks of the existing task: ${id}`,
     composerTargetTitle: 'Target: new task or guide an existing goal',
     deleteShort: 'Delete',
+    deleteGoalNamed: (name) => `Delete: ${name}`,
+    duplicateRepoHint: (name) => `This repository already has task "${name}" — the new issues will merge into it (one repository keeps one task)`,
     resizeHandleHint: 'Drag to resize the column',
     logBottomHint: 'Back to bottom',
     intakeNoneSelected: 'Select at least one issue',
@@ -636,6 +640,14 @@ function updateComposerDeleteBtn() {
   btn.hidden = !picked;
   const chip = select.closest('.composer__target');
   if (chip) chip.classList.toggle('composer__target--picked', picked);
+  if (picked) {
+    // Name the delete target explicitly — with same-looking legacy twins in
+    // the dropdown, an anonymous 删除 button is ambiguous.
+    const g = S.goals.get(select.value);
+    const name = g ? goalDisplayName(g) : select.value;
+    btn.textContent = t('deleteGoalNamed', name.length > 20 ? `${name.slice(0, 19)}…` : name);
+    btn.title = `${select.value} · ${t('deleteTask')}`;
+  }
 }
 
 function newGoalState(goalId, info) {
@@ -3609,16 +3621,21 @@ async function createTaskFromInput() {
     return;
   }
   setTaskFeedback('');
-  // One repo = one task: when a non-terminal task already exists for this
-  // repository, the new issues merge into it as todos by default. The
-  // composer target can still be switched to 新建任务 for a separate task.
+  // One repo = one task (hard dedup): when a task already exists for this
+  // repository, the new issues merge into it — a 新建任务 pick for a repo
+  // that already owns a task is overridden back to the merge target with a
+  // visible hint. A separate task is only possible for a repo without one.
   const targetSelect = document.getElementById('composer-target');
-  if (targetSelect && !targetSelect.value) {
-    const sameRepo = sameRepoGoal(resolved);
-    if (sameRepo) {
+  const sameRepo = sameRepoGoal(resolved);
+  if (sameRepo && targetSelect) {
+    const current = targetSelect.value;
+    const currentGoal = current ? S.goals.get(current) : null;
+    const validPick = currentGoal && goalRepoMatches(currentGoal, resolved);
+    if (!validPick) {
       targetSelect.value = sameRepo.goalId;
       updateComposerDeleteBtn();
-      dbgUi('createTask:mergeTarget', sameRepo.goalId);
+      if (current) setTaskFeedback(t('duplicateRepoHint', goalDisplayName(sameRepo)), 'ok');
+      dbgUi('createTask:mergeTarget', `${sameRepo.goalId} (was ${current || 'new'})`);
     }
   }
   let targetGoal = targetSelect && targetSelect.value
