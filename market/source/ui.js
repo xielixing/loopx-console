@@ -1709,10 +1709,9 @@ const S = {
   countdownTimer: null,
   paused: false,
   renderPending: false,
-  // A refill of the composer target select was skipped because the user had
-  // the dropdown open (swapping options under a popup closes it); flush once
-  // the pick settles.
-  refillTargetPending: false,
+  // Selected composer target goal ('' = 新建任务). The picker is a custom
+  // popover: native selects cannot host per-option delete buttons.
+  composerTargetId: '',
   activeGoalId: null,
   intakeDraft: null,
   pendingIntake: null, // resolveIntake result awaiting sheet confirmation
@@ -1800,62 +1799,89 @@ function syncComposerModel() {
 }
 
 // The composer shows where the next intake lands: a new task (default) or an
-// existing goal. The dropdown doubles as the goal picker for deletion.
+// existing goal. The picker is a custom popover so every goal option carries
+// its own delete (×) button — native selects cannot host per-option buttons.
+function composerTargetValue() {
+  return S.composerTargetId || '';
+}
+
+function setComposerTarget(id) {
+  S.composerTargetId = id || '';
+  const label = document.getElementById('composer-target-label');
+  if (label) {
+    if (S.composerTargetId) {
+      const g = S.goals.get(S.composerTargetId);
+      label.textContent = g ? goalDisplayName(g) : S.composerTargetId;
+      label.title = S.composerTargetId;
+    } else {
+      label.textContent = t('intakeModeNew');
+      label.title = '';
+    }
+  }
+  const chip = document.getElementById('composer-target');
+  if (chip) chip.classList.toggle('composer__target--picked', Boolean(S.composerTargetId));
+}
+
+function closeComposerTargetMenu() {
+  const menu = document.getElementById('composer-target-menu');
+  if (menu) menu.hidden = true;
+}
+
 // Refills are cheap and idempotent, so callers (render, refresh, boot) may
 // invoke this freely; it never depends on the board render having completed.
 function refillComposerTarget() {
-  const select = document.getElementById('composer-target');
-  if (!select) return;
-  if (document.activeElement === select) {
-    // Swapping options while the user is mid-pick would close the popup;
-    // defer to the change event, which flushes the pending refill.
-    S.refillTargetPending = true;
-    return;
-  }
+  const menu = document.getElementById('composer-target-menu');
+  if (!menu) return;
   try {
-    const previous = select.value;
-    select.replaceChildren();
-    const optNew = document.createElement('option');
-    optNew.value = '';
-    optNew.textContent = t('intakeModeNew');
-    select.appendChild(optNew);
+    const previous = composerTargetValue();
+    menu.replaceChildren();
+    const optNew = document.createElement('button');
+    optNew.type = 'button';
+    optNew.className = 'composer-target__item' + (previous ? '' : ' is-selected');
+    const newLabel = document.createElement('span');
+    newLabel.className = 'composer-target__item-label';
+    newLabel.textContent = t('intakeModeNew');
+    optNew.appendChild(newLabel);
+    optNew.onclick = () => {
+      setComposerTarget('');
+      closeComposerTargetMenu();
+    };
+    menu.appendChild(optNew);
     for (const g of S.goals.values()) {
       if (isTerminal(g)) continue;
-      const option = document.createElement('option');
-      option.value = g.goalId;
-      // Status suffix makes same-repo historical siblings distinguishable in
-      // the dropdown (deepseek-harness-desktop#6 · 已停表 / 自动运行 …).
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'composer-target__item' + (g.goalId === previous ? ' is-selected' : '');
+      const label = document.createElement('span');
+      label.className = 'composer-target__item-label';
+      // Status suffix makes same-repo historical siblings distinguishable.
       const pending = Array.isArray(g.userTodos) && g.userTodos.length
         ? ` · ${t('gateCount', g.userTodos.length)}`
         : '';
-      option.textContent = `${goalDisplayName(g)} · ${goalStatus(g).text}${pending}`;
-      option.title = g.goalId;
-      select.appendChild(option);
+      label.textContent = `${goalDisplayName(g)} · ${goalStatus(g).text}${pending}`;
+      label.title = g.goalId;
+      item.appendChild(label);
+      const close = document.createElement('span');
+      close.className = 'composer-target__item-close';
+      close.textContent = '×';
+      close.title = `${t('deleteGoalNamed', goalDisplayName(g))}（${g.goalId}）`;
+      close.onclick = (ev) => {
+        ev.stopPropagation();
+        openDeleteConfirm(g);
+      };
+      item.appendChild(close);
+      item.onclick = () => {
+        setComposerTarget(g.goalId);
+        closeComposerTargetMenu();
+      };
+      menu.appendChild(item);
     }
-    const options = [...select.options].map((o) => o.value);
-    select.value = options.includes(previous) ? previous : '';
-    updateComposerDeleteBtn();
-    dbgUi('refillTarget', `opts=${select.options.length} goals=${S.goals.size} value=${JSON.stringify(select.value)} width=${select.clientWidth}`);
+    // Keep the pick valid; when its goal vanished (deleted), fall back to new.
+    if (previous && !S.goals.has(previous)) setComposerTarget('');
+    else setComposerTarget(previous);
+    dbgUi('refillTarget', `opts=${menu.children.length} goals=${S.goals.size} value=${JSON.stringify(composerTargetValue())}`);
   } catch (err) {
     dbgUi('refillTarget:error', String(err && (err.stack || err.message) || err).slice(0, 300));
-  }
-}
-
-function updateComposerDeleteBtn() {
-  const select = document.getElementById('composer-target');
-  const btn = document.getElementById('btn-composer-delete');
-  if (!select || !btn) return;
-  const picked = select.value !== '';
-  btn.hidden = !picked;
-  const chip = select.closest('.composer__target');
-  if (chip) chip.classList.toggle('composer__target--picked', picked);
-  if (picked) {
-    // Name the delete target explicitly — with same-looking legacy twins in
-    // the dropdown, an anonymous 删除 button is ambiguous.
-    const g = S.goals.get(select.value);
-    const name = g ? goalDisplayName(g) : select.value;
-    btn.textContent = t('deleteGoalNamed', name.length > 20 ? `${name.slice(0, 19)}…` : name);
-    btn.title = `${select.value} · ${t('deleteTask')}`;
   }
 }
 
@@ -3832,7 +3858,7 @@ function renderAllGoals(force = false) {
     emptyHint.hidden = false;
   }
   refillComposerTarget();
-  dbgUi('renderDone', `targetOpts=${document.getElementById('composer-target')?.options.length ?? 'n/a'}`);
+  dbgUi('renderDone', `targetOpts=${document.getElementById('composer-target-menu')?.children.length ?? 'n/a'}`);
   } catch (err) {
     dbgUi('renderError', String(err && (err.stack || err.message) || err).slice(0, 500));
   }
@@ -4834,29 +4860,26 @@ async function createTaskFromInput() {
   // repository, the new issues merge into it — a 新建任务 pick for a repo
   // that already owns a task is overridden back to the merge target with a
   // visible hint. A separate task is only possible for a repo without one.
-  const targetSelect = document.getElementById('composer-target');
   const sameRepo = sameRepoGoal(resolved);
-  if (sameRepo && targetSelect) {
-    const current = targetSelect.value;
+  if (sameRepo) {
+    const current = composerTargetValue();
     const currentGoal = current ? S.goals.get(current) : null;
     const validPick = currentGoal && goalRepoMatches(currentGoal, resolved);
     if (!validPick) {
-      targetSelect.value = sameRepo.goalId;
-      updateComposerDeleteBtn();
+      setComposerTarget(sameRepo.goalId);
       if (current) setTaskFeedback(t('duplicateRepoHint', goalDisplayName(sameRepo)), 'ok');
       dbgUi('createTask:mergeTarget', `${sameRepo.goalId} (was ${current || 'new'})`);
     }
   }
-  let targetGoal = targetSelect && targetSelect.value
-    ? S.goals.get(targetSelect.value)
+  let targetGoal = composerTargetValue()
+    ? S.goals.get(composerTargetValue())
     : null;
   if (targetGoal && !goalRepoMatches(targetGoal, resolved)) {
     // A leftover pick from another repository must never cross-pollinate
     // (one task = one repo): drop it and fall through to the same-repo
     // merge or a fresh task.
     dbgUi('createTask:staleTarget', `${targetGoal.goalId} vs ${resolved.repo}`);
-    targetSelect.value = '';
-    updateComposerDeleteBtn();
+    setComposerTarget('');
     targetGoal = null;
   }
   const guideGoal = targetGoal && !isTerminal(targetGoal) ? targetGoal : null;
@@ -4871,9 +4894,9 @@ async function createTaskFromInput() {
 // pick wins first; otherwise prefer the selected goal, then a single running
 // goal; multiple running goals need a pick first.
 function guidanceTargetGoal() {
-  const select = document.getElementById('composer-target');
-  if (select && select.value) {
-    const picked = S.goals.get(select.value);
+  const pickedId = composerTargetValue();
+  if (pickedId) {
+    const picked = S.goals.get(pickedId);
     if (picked && !isTerminal(picked)) return picked;
   }
   if (S.activeGoalId) {
@@ -4931,17 +4954,15 @@ document.getElementById('composer-model').addEventListener('change', async () =>
   await saveConfig();
   log(t('modelChanged', S.config.defaultModel));
 });
-document.getElementById('composer-target').addEventListener('change', () => {
-  updateComposerDeleteBtn();
-  if (S.refillTargetPending) {
-    S.refillTargetPending = false;
-    refillComposerTarget();
-  }
+document.getElementById('composer-target-trigger').addEventListener('click', () => {
+  const menu = document.getElementById('composer-target-menu');
+  if (!menu) return;
+  if (menu.hidden) refillComposerTarget();
+  menu.hidden = !menu.hidden;
 });
-document.getElementById('btn-composer-delete').addEventListener('click', () => {
-  const select = document.getElementById('composer-target');
-  const goal = select.value ? S.goals.get(select.value) : null;
-  if (goal) openDeleteConfirm(goal);
+document.addEventListener('click', (e) => {
+  const target = document.getElementById('composer-target');
+  if (target && !target.contains(e.target)) closeComposerTargetMenu();
 });
 
 

@@ -112,10 +112,13 @@
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5 10 6l4.5 2L10 10l-2 4.5L6 10 1.5 8 6 6z"/></svg>
                 <select id="composer-model"></select>
               </label>
-              <label class="composer__target" data-i18n-attr="title" data-i18n="composerTargetTitle">
-                <select id="composer-target"></select>
-              </label>
-              <button id="btn-composer-delete" class="btn btn--tiny btn--danger" type="button" data-i18n="deleteShort" hidden>删除</button>
+              <div class="composer__target" data-i18n-attr="title" data-i18n="composerTargetTitle" id="composer-target">
+                <button type="button" class="composer-target__trigger" id="composer-target-trigger" aria-haspopup="listbox">
+                  <span id="composer-target-label">新建任务</span>
+                  <svg class="composer-target__caret" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>
+                </button>
+                <div class="composer-target__menu" id="composer-target-menu" role="listbox" hidden></div>
+              </div>
               <span id="task-kind" class="composer__kind" hidden></span>
             </div>
             <button id="btn-create-task" class="composer__submit" type="button" data-i18n-title="taskCreate">

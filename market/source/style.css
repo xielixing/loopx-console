@@ -109,15 +109,44 @@ button, input, select { font: inherit; }
 }
 .composer__model:hover,
 .composer__target:hover { border-color: var(--lx-border-strong); }
-.composer__model select,
-.composer__target select {
+.composer__model select {
   min-width: 0; max-width: 230px; padding: 0; border: 0; outline: 0; background: transparent;
   color: var(--lx-text-soft); font-size: 11px; cursor: pointer;
 }
-.composer__target select { max-width: 190px; min-width: 96px; }
+/* The goal picker is a custom popover (each option carries its own delete
+   button), so these rules replace the old select-based chip. */
+.composer__target { position: relative; }
+.composer-target__trigger {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 96px; max-width: 200px;
+  padding: 0; border: 0; outline: 0; background: transparent;
+  color: var(--lx-text-soft); font-size: 11px; cursor: pointer; text-align: left;
+}
+.composer-target__trigger #composer-target-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-target__caret { flex: 0 0 auto; color: var(--lx-text-mute); }
+.composer-target__menu {
+  position: absolute; bottom: calc(100% + 8px); left: -1px; z-index: 30;
+  min-width: 280px; max-width: 380px; max-height: 280px; overflow-y: auto;
+  padding: 4px; border: 1px solid var(--lx-border-strong); border-radius: 10px;
+  background: var(--lx-elevated);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--lx-text) 16%, transparent);
+}
+.composer-target__item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; padding: 6px 8px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--lx-text-soft); font-size: 11.5px;
+  cursor: pointer; text-align: left;
+}
+.composer-target__item:hover { background: var(--lx-hover); }
+.composer-target__item.is-selected { background: var(--lx-surface-2); color: var(--lx-accent); }
+.composer-target__item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-target__item-close {
+  flex: 0 0 auto; display: grid; place-items: center; width: 17px; height: 17px;
+  border-radius: 50%; color: var(--lx-text-mute); font-size: 13px; line-height: 1;
+}
+.composer-target__item-close:hover { background: color-mix(in srgb, var(--lx-error) 20%, transparent); color: var(--lx-error); }
 /* A picked goal flips the chip to accent: the next input guides that goal. */
 .composer__target--picked { border-color: var(--lx-accent); }
-.composer__target--picked select { color: var(--lx-accent); }
+.composer__target--picked .composer-target__trigger { color: var(--lx-accent); }
 .composer__submit {
   display: grid; place-items: center; flex: 0 0 auto; width: 38px; height: 38px; padding: 0;
   border: 0; border-radius: 50%; background: var(--lx-accent); color: #fff; cursor: pointer;
