@@ -759,7 +759,7 @@
     // protocol as the worker edition; git rides the host shell (argv-only,
     // git is allow-listed), REST rides app.net.fetch.
     async 'loopx.publishPr'({
-      projectDir = null, goalId = null, token = null, title = '', body = '',
+      projectDir = null, goalId = null, token = null, title = '', body = '', branch: requestedBranch = null,
     } = {}) {
       if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
       if (!token) throw new Error('loopx.publishPr: token is required');
@@ -768,8 +768,13 @@
       });
       let r = await runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
       if (r.exit_code !== 0) throw new Error(`git rev-parse failed: ${r.stderr.trim().slice(0, 200)}`);
-      const branch = String(r.stdout || '').trim();
+      let branch = String(r.stdout || '').trim();
       if (!branch || branch === 'HEAD') throw new Error('publishPr: the checkout is in detached HEAD state');
+      // Prefer the branch named by the gate item; keep HEAD when unknown.
+      if (requestedBranch && requestedBranch !== branch) {
+        const check = await runGit(['rev-parse', '--verify', `refs/heads/${requestedBranch}`], 20000);
+        if (check.exit_code === 0) branch = requestedBranch;
+      }
       r = await runGit(['remote', 'get-url', 'origin']);
       const repoMatch = String(r.stdout || '').match(/github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
       if (!repoMatch) throw new Error(`publishPr: cannot parse repository from origin "${String(r.stdout).trim()}"`);

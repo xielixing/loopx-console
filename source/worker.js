@@ -521,14 +521,18 @@ function uniqueGoalId(projectDir, objective, refs) {
   }
   const issueRefs = refs.filter((ref) => ref.kind === 'issue' || ref.kind === 'pr');
   const listRef = refs.find((ref) => ref.kind === 'issues-list');
+  // One task = one repository: the id carries BOTH owner and repo name, so
+  // two repositories with the same name under different owners can never
+  // collide into a suffix sibling goal (legacy ids were owner-less).
+  const owner = String((listRef || issueRefs[0] || {}).repo || '').split('/')[0].toLowerCase();
+  const repoSlug = (ref) => (owner ? `${owner}-` : '') + String(ref.repo).split('/')[1];
   let base;
   if (listRef) {
-    base = `${listRef.repo.split('/')[1]}-issues`;
+    base = `${repoSlug(listRef)}-issues`;
   } else if (issueRefs.length === 1) {
-    const repo = issueRefs[0].repo.split('/')[1];
-    base = `${repo}-issue-${issueRefs[0].number}`;
+    base = `${repoSlug(issueRefs[0])}-issue-${issueRefs[0].number}`;
   } else if (issueRefs.length > 1) {
-    base = `${issueRefs[0].repo.split('/')[1]}-issues`;
+    base = `${repoSlug(issueRefs[0])}-issues`;
   } else {
     base = String(objective)
       .toLowerCase()
@@ -1149,13 +1153,22 @@ module.exports = {
   // pull request against the upstream default branch. The UI composes the
   // [bitfun-loopx] marked title/body so the tool's PRs stay countable.
   async 'loopx.publishPr'({
-    projectDir = null, goalId = null, token = null, title = '', body = '',
+    projectDir = null, goalId = null, token = null, title = '', body = '', branch: requestedBranch = null,
   } = {}) {
     if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
     if (!token) throw new Error('loopx.publishPr: token is required');
-    dbgWorker('publishPr:start', `goalId=${goalId || ''}`);
-    const branch = (await gitRun(projectDir, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
+    dbgWorker('publishPr:start', `goalId=${goalId || ''} branch=${requestedBranch || ''}`);
+    let branch = (await gitRun(projectDir, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
     if (!branch || branch === 'HEAD') throw new Error('publishPr: the checkout is in detached HEAD state');
+    // Prefer the branch named by the gate item; keep HEAD when unknown.
+    if (requestedBranch && requestedBranch !== branch) {
+      try {
+        await gitRun(projectDir, ['rev-parse', '--verify', `refs/heads/${requestedBranch}`], 20000);
+        branch = requestedBranch;
+      } catch (_) {
+        dbgWorker('publishPr:branchFallback', `${requestedBranch} -> HEAD`);
+      }
+    }
     const origin = (await gitRun(projectDir, ['remote', 'get-url', 'origin'])).stdout.trim();
     const repoMatch = origin.match(/github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
     if (!repoMatch) throw new Error(`publishPr: cannot parse repository from origin "${origin}"`);

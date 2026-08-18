@@ -761,7 +761,7 @@
     // protocol as the worker edition; git rides the host shell (argv-only,
     // git is allow-listed), REST rides app.net.fetch.
     async 'loopx.publishPr'({
-      projectDir = null, goalId = null, token = null, title = '', body = '',
+      projectDir = null, goalId = null, token = null, title = '', body = '', branch: requestedBranch = null,
     } = {}) {
       if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
       if (!token) throw new Error('loopx.publishPr: token is required');
@@ -770,8 +770,13 @@
       });
       let r = await runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
       if (r.exit_code !== 0) throw new Error(`git rev-parse failed: ${r.stderr.trim().slice(0, 200)}`);
-      const branch = String(r.stdout || '').trim();
+      let branch = String(r.stdout || '').trim();
       if (!branch || branch === 'HEAD') throw new Error('publishPr: the checkout is in detached HEAD state');
+      // Prefer the branch named by the gate item; keep HEAD when unknown.
+      if (requestedBranch && requestedBranch !== branch) {
+        const check = await runGit(['rev-parse', '--verify', `refs/heads/${requestedBranch}`], 20000);
+        if (check.exit_code === 0) branch = requestedBranch;
+      }
       r = await runGit(['remote', 'get-url', 'origin']);
       const repoMatch = String(r.stdout || '').match(/github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
       if (!repoMatch) throw new Error(`publishPr: cannot parse repository from origin "${String(r.stdout).trim()}"`);
@@ -2127,6 +2132,7 @@ async function approveTodo(g, todo, note, button) {
           token,
           title: prTitleFor(g),
           body: prBodyFor(g),
+          branch: branchHintFromText(todo.text || todo.title || ''),
         });
         if (!published.ok) throw new Error(published.error || 'publish failed');
         recordGoalActivity(g, t('publishDone', published.prUrl), false, 'agent');
@@ -2438,16 +2444,25 @@ const PR_BODY_MARKER = 'Created by BitFun LoopX Console (bitfun-loopx).';
 // loopx's issue-fix model is ONE goal per repository with one todo per
 // issue: a follow-up intake for an already-owned repo must merge into that
 // goal instead of minting a sibling task. Match by the bound checkout
-// directory first, then by the repo slug embedded in the goalId.
-function sameRepoGoal(resolved) {
-  const repoName = String(resolved.repo || '').split('/').pop().replace(/\.git$/i, '').toLowerCase();
-  if (!repoName) return null;
+// directory first, then by the owner/repo slug embedded in the goalId
+// (legacy ids lack the owner; owner-qualified ids must match both parts).
+function goalRepoMatches(g, resolved) {
+  const repo = String(resolved.repo || '');
+  const owner = repo.split('/')[0].toLowerCase();
+  const repoName = repo.split('/').pop().replace(/\.git$/i, '').toLowerCase();
+  if (!owner || !repoName) return false;
   const dir = resolved.reuseDir;
+  if (dir && goalProjectDir(g.goalId) === dir) return true;
+  const m = String(g.goalId || '').match(/^bfx-(.+?)-(?:issue-\d+|issues)(?:-\d+)?$/i);
+  if (!m) return false;
+  const slug = m[1].toLowerCase();
+  if (slug === `${owner}-${repoName}`) return true;
+  return slug === repoName; // legacy owner-less id (repo name alone)
+}
+
+function sameRepoGoal(resolved) {
   for (const g of S.goals.values()) {
-    if (isTerminal(g)) continue;
-    if (dir && goalProjectDir(g.goalId) === dir) return g;
-    const m = String(g.goalId || '').match(/^bfx-(.+?)-(?:issue-\d+|issues)(?:-\d+)?$/i);
-    if (m && m[1].toLowerCase() === repoName) return g;
+    if (!isTerminal(g) && goalRepoMatches(g, resolved)) return g;
   }
   return null;
 }
@@ -2462,6 +2477,20 @@ function prBodyFor(g) {
   if (issueMatch) lines.push(`Fixes #${issueMatch[1]}`);
   lines.push(PR_BODY_MARKER);
   return lines.join('\n\n');
+}
+
+// The publish gate's wording usually names the fix branch ("Push
+// fix/issue-216-… to a fork…"). Pushing the named branch instead of HEAD
+// keeps per-issue branches separate inside the one-repo goal.
+function branchHintFromText(text) {
+  const s = String(text || '');
+  const pushMatch = s.match(/(?:push|branch)\s+([A-Za-z0-9][A-Za-z0-9._/-]{0,120})/i);
+  if (pushMatch) {
+    const token = pushMatch[1].replace(/[),.;:]+$/, '');
+    if (/^(fix|feature|codex|issue|patch)[\/-]/i.test(token)) return token;
+  }
+  const m = s.match(/(?:fix|feature|codex|issue|patch)[\/-][A-Za-z0-9._-]{2,}/i);
+  return m ? m[0].replace(/[),.;:]+$/, '') : null;
 }
 
 // Classify one user todo: BLOCKING gates (user_gate / publish scope) need a
@@ -4358,9 +4387,18 @@ async function createTaskFromInput() {
       dbgUi('createTask:mergeTarget', sameRepo.goalId);
     }
   }
-  const targetGoal = targetSelect && targetSelect.value
+  let targetGoal = targetSelect && targetSelect.value
     ? S.goals.get(targetSelect.value)
     : null;
+  if (targetGoal && !goalRepoMatches(targetGoal, resolved)) {
+    // A leftover pick from another repository must never cross-pollinate
+    // (one task = one repo): drop it and fall through to the same-repo
+    // merge or a fresh task.
+    dbgUi('createTask:staleTarget', `${targetGoal.goalId} vs ${resolved.repo}`);
+    targetSelect.value = '';
+    updateComposerDeleteBtn();
+    targetGoal = null;
+  }
   const guideGoal = targetGoal && !isTerminal(targetGoal) ? targetGoal : null;
   if (resolved.issues.length < 2 && !guideGoal) {
     startTaskIntake({ resolved, objective, selected: new Set(resolved.issues.map((i) => i.url)) }, null);
