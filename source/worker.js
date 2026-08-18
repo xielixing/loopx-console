@@ -554,29 +554,6 @@ function uniqueGoalId(projectDir, objective, refs) {
   return goalId;
 }
 
-// Creation-time dedup identity: the repo slug embedded in goal ids.
-function findSameRepoGoalInRegistries(projectDir, repo) {
-  const ids = new Set();
-  for (const dir of [projectDir, null]) {
-    const { registry } = readRegistry(dir);
-    for (const goal of (registry && registry.goals) || []) {
-      const id = goal.goal_id || goal.id;
-      if (id) ids.add(id);
-    }
-  }
-  const owner = String(repo || '').split('/')[0].toLowerCase();
-  const repoName = String(repo || '').split('/').pop().replace(/\.git$/i, '').toLowerCase();
-  if (!repoName) return null;
-  for (const id of ids) {
-    const m = String(id).match(/^bfx-(.+?)-(?:issue-\d+|issues)(?:-\d+)?$/i);
-    if (!m) continue;
-    const slug = m[1].toLowerCase();
-    if (slug === repoName) return id; // legacy owner-less ids
-    if (owner && slug === `${owner}-${repoName}`) return id; // owner-qualified
-  }
-  return null;
-}
-
 function readGoalObjective(projectDir, goal) {
   const stateFile = goal && goal.state_file;
   if (!stateFile) return null;
@@ -1438,22 +1415,6 @@ module.exports = {
         .map((ref) => ({ url: ref.url, number: ref.number, title: `#${ref.number}` }));
 
     const targetGoalId = mode === 'guide' ? goalId : uniqueGoalId(projectDir, text, refs);
-    // One repo = one task: creation-time hard dedup. A task for this
-    // repository already registered (project or global) refuses a NEW goal —
-    // new issues must merge into the existing task (the UI does this by
-    // default; this guards standalone callers).
-    if (mode === 'new' && repoLabel) {
-      const dupGoalId = findSameRepoGoalInRegistries(projectDir, repoLabel);
-      if (dupGoalId) {
-        dbgWorker('taskIntake:duplicate', `${dupGoalId} for ${repoLabel}`);
-        return {
-          ok: false,
-          code: 'duplicate_repo_goal',
-          existingGoalId: dupGoalId,
-          error: `该仓库已有任务 ${dupGoalId}（一个仓库只保留一个任务），请将新 Issues 并入该任务。`,
-        };
-      }
-    }
     const intakeKind = listRefs.length ? 'issues-list'
       : (issueList.length > 1 ? 'issues' : (issueList.length === 1 ? 'issue' : (refs.length ? 'repository' : 'goal')));
     const emit = (stage, extra = {}) => {

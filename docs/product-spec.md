@@ -18,8 +18,9 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 
 1. **同仓库复用（默认优先）**：已记录的项目/克隆目录（`projectByGoal`）里
    存在该仓库的 checkout 时直接复用（`reuseDir`），不再重复克隆；确认单
-   展示「无需重新克隆」。默认落成**新任务**；composer 底部的目标下拉可
-   改为「引导」该仓库现有的非终态任务（guide 模式）。
+   展示「无需重新克隆」。默认落成**完全独立的新任务**（允许同仓库多任务）。
+   composer 底部的目标下拉选中已有任务时，输入的内容（链接或自由文本）作为
+   **人类反馈**注入该任务，不再走入库。
 2. **自动克隆（默认）**：没有可复用的 checkout 时，目标仓库被克隆到**稳定的
    用户级缓存**（`~/.bitfun/loopx-console/repos/<owner>-<repo>`），goal 绑定
    该克隆；克隆有进度显示（接收对象百分比），已完成仓库走缓存。该目录不在
@@ -67,10 +68,12 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
    未选 checkout 时校验 GitHub 仓库存在性并标记 `autoClone`；已记录的
    项目目录命中同仓库时返回 `reuseDir`）。
 3. 确认单（唯一刻意停顿）：多 issue 勾选（默认全选、截断标注）；复用模式下
-   展示「无需重新克隆」说明。新任务 vs 引导现有任务在**提交前**由 composer
-   底部目标下拉决定（默认新建任务），确认单不再提供目标选择。
+   展示「无需重新克隆」说明。提交前由 composer 底部目标下拉决定去向：
+   **新建任务**（默认，完全独立）或**选中已有任务**（输入作为人类反馈注入该
+   任务，不弹确认单、不写 issue todo）。
 4. `loopx.taskIntake`（事件驱动）：`clone`（自动克隆时，带百分比进度）→
-   bootstrap → register → plan/todos → refresh → 完成。
+   bootstrap → register → plan/todos → refresh → 完成。写入修复 todo 前按
+   **issue URL 去重**（同 URL 已有未完成 todo 则跳过）。
 5. 完成后记录 goal 的仓库目录（`projectByGoal`），看板与心跳使用它；
    auto-run 接管。
 
@@ -95,10 +98,13 @@ LoopX Console 是**「GitHub Issue 持续修复」控制台**，而不是通用�
 
 ## 3.2 中途插话（人类干预）
 
-任务运行期间，输入框支持自由文字：文字会被写入该任务的 **user-lane todo**
-（`--role user --task-class user_action --bound-agent <agent>`，不是
-user_gate——这是给 Agent 的指令，不是阻塞决策），loopx 将其作为该 agent
-lane 的 post-response continuation 投递，Agent 下一步就会读到。
+- **选中已有任务时**：输入框内容（自由文字或链接）一律作为**人类反馈**写入
+  该任务的 user-lane todo（`--role user --task-class user_action
+  --bound-agent <agent>`，不是 user_gate——这是给 Agent 的指令，不是阻塞
+  决策），loopx 将其作为该 agent lane 的 post-response continuation 投递，
+  Agent 下一步就会读到并据此调整行为。
+- **未选中任务时**：自由文字自动发给当前运行中的任务（多任务运行中时提示
+  先点选）。
 
 - 目标选择：优先当前在详情面板选中的任务；否则若只有一个任务在运行则
   直接发送；多个任务运行中时提示先点选目标任务。

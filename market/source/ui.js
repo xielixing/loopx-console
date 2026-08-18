@@ -1331,10 +1331,9 @@ const I18N = {
     intakeConfirmIssues: (n) => `开始修复 ${n} 个 Issues`,
     intakeConfirmGuide: '写入现有任务',
     guideTargetNote: (id) => `将把所选 Issues 作为子任务并入现有任务：${id}`,
-    composerTargetTitle: '目标：新建任务或引导现有任务',
+    composerTargetTitle: '目标：新建任务（完全独立）；选择已有任务时，输入的内容会作为人类反馈发送给该任务',
     deleteShort: '删除',
     deleteGoalNamed: (name) => `删除：${name}`,
-    duplicateRepoHint: (name) => `该仓库已有任务「${name}」，新 Issues 将并入该任务（一个仓库只保留一个任务）`,
     resizeHandleHint: '拖拽调整列宽',
     logBottomHint: '回到底部',
     intakeNoneSelected: '至少选择一个 Issue',
@@ -1553,10 +1552,9 @@ const I18N = {
     intakeConfirmIssues: (n) => `Start fixing ${n} issues`,
     intakeConfirmGuide: 'Write into existing task',
     guideTargetNote: (id) => `The selected issues will be added as subtasks of the existing task: ${id}`,
-    composerTargetTitle: 'Target: new task or guide an existing goal',
+    composerTargetTitle: 'Target: a new independent task, or an existing task that receives your input as feedback',
     deleteShort: 'Delete',
     deleteGoalNamed: (name) => `Delete: ${name}`,
-    duplicateRepoHint: (name) => `This repository already has task "${name}" — the new issues will merge into it (one repository keeps one task)`,
     resizeHandleHint: 'Drag to resize the column',
     logBottomHint: 'Back to bottom',
     intakeNoneSelected: 'Select at least one issue',
@@ -2755,31 +2753,6 @@ function githubCredState() {
 const PR_TITLE_PREFIX = '[bitfun-loopx] ';
 const PR_BODY_MARKER = 'Created by BitFun LoopX Console (bitfun-loopx).';
 
-// loopx's issue-fix model is ONE goal per repository with one todo per
-// issue: a follow-up intake for an already-owned repo must merge into that
-// goal instead of minting a sibling task. Match by the bound checkout
-// directory first, then by the owner/repo slug embedded in the goalId
-// (legacy ids lack the owner; owner-qualified ids must match both parts).
-function goalRepoMatches(g, resolved) {
-  const repo = String(resolved.repo || '');
-  const owner = repo.split('/')[0].toLowerCase();
-  const repoName = repo.split('/').pop().replace(/\.git$/i, '').toLowerCase();
-  if (!owner || !repoName) return false;
-  const dir = resolved.reuseDir;
-  if (dir && goalProjectDir(g.goalId) === dir) return true;
-  const m = String(g.goalId || '').match(/^bfx-(.+?)-(?:issue-\d+|issues)(?:-\d+)?$/i);
-  if (!m) return false;
-  const slug = m[1].toLowerCase();
-  if (slug === `${owner}-${repoName}`) return true;
-  return slug === repoName; // legacy owner-less id (repo name alone)
-}
-
-function sameRepoGoal(resolved) {
-  for (const g of S.goals.values()) {
-    if (!isTerminal(g) && goalRepoMatches(g, resolved)) return g;
-  }
-  return null;
-}
 
 function prTitleFor(g) {
   return `${PR_TITLE_PREFIX}${goalDisplayName(g)}`;
@@ -4815,8 +4788,23 @@ async function createTaskFromInput() {
   const objective = input.value.trim();
   if (!objective) { input.focus(); return; }
   dbgUi('createTask:start', `text=${objective.slice(0, 120)}`);
-  // Issue-fix is the one polished creation scenario; free text is NOT a
-  // goal type — while a task is running, it becomes mid-task guidance.
+  // Composer semantics:
+  //   新建任务 → a COMPLETELY independent new task (link → issue intake).
+  //   已有任务 → whatever the human typed (link or free text) is FEEDBACK
+  //   injected into that task as guidance — no issue-list sheet, no new
+  //   todos; the agent's next turns follow the human's expectations.
+  const explicitId = composerTargetValue();
+  if (explicitId) {
+    const target = S.goals.get(explicitId);
+    if (target && !isTerminal(target)) {
+      startGuidance(target, objective);
+      return;
+    }
+    // The picked goal vanished (deleted): fall through to a fresh task.
+    setComposerTarget('');
+  }
+  // Free text is NOT a goal type — while a task is running, it becomes
+  // mid-task guidance on the active/running goal.
   if (!taskInputKind(objective)) {
     const bad = firstUnsupportedGithubUrl(objective);
     if (bad) {
@@ -4900,38 +4888,14 @@ async function createTaskFromInput() {
     return;
   }
   setTaskFeedback('');
-  // One repo = one task (hard dedup): when a task already exists for this
-  // repository, the new issues merge into it — a 新建任务 pick for a repo
-  // that already owns a task is overridden back to the merge target with a
-  // visible hint. A separate task is only possible for a repo without one.
-  const sameRepo = sameRepoGoal(resolved);
-  if (sameRepo) {
-    const current = composerTargetValue();
-    const currentGoal = current ? S.goals.get(current) : null;
-    const validPick = currentGoal && goalRepoMatches(currentGoal, resolved);
-    if (!validPick) {
-      setComposerTarget(sameRepo.goalId);
-      if (current) setTaskFeedback(t('duplicateRepoHint', goalDisplayName(sameRepo)), 'ok');
-      dbgUi('createTask:mergeTarget', `${sameRepo.goalId} (was ${current || 'new'})`);
-    }
-  }
-  let targetGoal = composerTargetValue()
-    ? S.goals.get(composerTargetValue())
-    : null;
-  if (targetGoal && !goalRepoMatches(targetGoal, resolved)) {
-    // A leftover pick from another repository must never cross-pollinate
-    // (one task = one repo): drop it and fall through to the same-repo
-    // merge or a fresh task.
-    dbgUi('createTask:staleTarget', `${targetGoal.goalId} vs ${resolved.repo}`);
-    setComposerTarget('');
-    targetGoal = null;
-  }
-  const guideGoal = targetGoal && !isTerminal(targetGoal) ? targetGoal : null;
-  if (resolved.issues.length < 2 && !guideGoal) {
+  // 新建任务: the intake always creates a completely independent task —
+  // no same-repo merging, no target overrides. (An explicitly selected
+  // existing task never reaches this path: its input became guidance above.)
+  if (resolved.issues.length < 2) {
     startTaskIntake({ resolved, objective, selected: new Set(resolved.issues.map((i) => i.url)) }, null);
     return;
   }
-  openIntakeSheet(resolved, objective, guideGoal);
+  openIntakeSheet(resolved, objective, null);
 }
 
 // Free text targets a RUNNING task as guidance. An explicit composer-target
