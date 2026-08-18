@@ -1287,7 +1287,7 @@ function buildGateItemCard(g, todo) {
   btn.textContent = info.isPublish
     ? t('approveAndPr')
     : (info.isBlocking ? t('approveGate') : t('completeTodoBtn'));
-  btn.onclick = () => openApproveDialog(g, todo);
+  btn.onclick = (ev) => { ev.stopPropagation(); openApproveDialog(g, todo); };
   title.append(label, btn);
   card.appendChild(title);
   const explainKey = info.isBlocking ? gateExplain(info.raw) : null;
@@ -1300,6 +1300,9 @@ function buildGateItemCard(g, todo) {
   if (info.raw && info.raw !== info.title) {
     const details = document.createElement('details');
     details.className = 'gate-card__raw-details';
+    // The card itself opens the log panel on click: the toggle must not
+    // bubble up, or the resulting re-render would collapse it immediately.
+    details.addEventListener('click', (ev) => ev.stopPropagation());
     const summary = document.createElement('summary');
     summary.textContent = t('gateRawToggle');
     const rawEl = document.createElement('div');
