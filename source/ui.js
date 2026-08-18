@@ -55,8 +55,7 @@ const I18N = {
     deleteConfirmText: (id) => `将归档「${id}」的运行记录并从注册表移除（注册表文件会先备份）。看板将不再显示该任务。`,
     confirmDelete: '确认删除',
     activityEmpty: '暂无日志',
-    activityModelRound: '新一轮推理开始',
-    thinkBlockTitle: '思考过程（点击展开）',
+    thinkBlockTitle: '思考过程',
     elapsedLabel: (t) => `已用时 ${t}`,
     waitingOn: (w) => `等待：${w}`,
     cancel: '取消',
@@ -216,8 +215,7 @@ const I18N = {
     deleteConfirmText: (id) => `This archives the runtime records of "${id}" and removes it from the registry (the registry file is backed up first). The task will no longer appear on the board.`,
     confirmDelete: 'Delete it',
     activityEmpty: 'No log yet',
-    activityModelRound: 'New reasoning round started',
-    thinkBlockTitle: 'Reasoning (click to expand)',
+    thinkBlockTitle: 'Reasoning',
     elapsedLabel: (t) => `elapsed ${t}`,
     waitingOn: (w) => `waiting on: ${w}`,
     cancel: 'Cancel',
@@ -1095,10 +1093,11 @@ function activityLineElement(entry) {
   time.textContent = entry.time;
   row.appendChild(time);
   if (entry.kind === 'think' && entry.stream) {
-    // Reasoning renders as ONE collapsed block, streamed in place — never a
-    // wall of per-paragraph "thinking" rows.
+    // Reasoning renders as ONE block, streamed in place and expanded by
+    // default — never a wall of per-paragraph "thinking" rows.
     const details = document.createElement('details');
     details.className = 'activity-prompt activity-prompt--think';
+    details.open = true;
     const summary = document.createElement('summary');
     summary.textContent = t('thinkBlockTitle');
     const pre = document.createElement('pre');
@@ -2061,7 +2060,12 @@ function upsertGoalStream(g, kind, text) {
   const patchRow = (row) => {
     if (kind === 'think') {
       const pre = row.querySelector('.activity-prompt--think pre');
-      if (pre) pre.textContent = summary;
+      if (pre) {
+        pre.textContent = summary;
+        // The block is expanded by default: keep its own view pinned to the
+        // latest reasoning instead of the top.
+        pre.scrollTop = pre.scrollHeight;
+      }
     } else {
       const textEl = row.querySelector('.activity-stream__text');
       if (textEl) textEl.textContent = summary;
@@ -2188,10 +2192,6 @@ app.agent.onEvent((e) => {
     if (typeof e.text === 'string') {
       streamAgentText(g, e.text, e.contentType === 'thinking');
     }
-  } else if (e.sourceEvent === 'model-round-started') {
-    // Each model reasoning round lands a line — the log keeps moving while
-    // the agent thinks, which is exactly the liveness users need.
-    recordGoalActivity(g, t('activityModelRound'));
   } else if (e.sourceEvent === 'dialog-turn-completed') {
     flushAgentText(g);
     finishRun(g, { ok: true });
