@@ -2260,10 +2260,11 @@ function recordGoalActivity(g, line, isErr = false, kind = null, raw = null) {
 
   const stream = document.querySelector(`.activity-stream[data-goal="${CSS.escape(g.goalId)}"]`);
   if (stream) {
-    const followTail = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 32;
+    const emptyEl = stream.querySelector('.activity-empty');
+    if (emptyEl) emptyEl.remove();
     stream.appendChild(activityLineElement(entry));
     while (stream.children.length > 240) stream.removeChild(stream.firstChild);
-    if (followTail) stream.scrollTop = stream.scrollHeight;
+    streamFollowTail(stream);
   } else {
     const panel = document.getElementById('goal-detail-panel');
     if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
@@ -2291,6 +2292,7 @@ function setGoalActivityTick(g, text) {
       if (textEl) textEl.textContent = summary;
       const timeEl = stream.lastElementChild.querySelector('.activity-stream__time');
       if (timeEl) timeEl.textContent = now;
+      streamFollowTail(stream);
     }
     return;
   }
@@ -2298,10 +2300,10 @@ function setGoalActivityTick(g, text) {
   g.activityLines.push(entry);
   if (g.activityLines.length > 240) g.activityLines.splice(0, g.activityLines.length - 240);
   if (stream) {
+    const emptyEl = stream.querySelector('.activity-empty');
+    if (emptyEl) emptyEl.remove();
     stream.appendChild(activityLineElement(entry));
-    if (stream.scrollHeight - stream.scrollTop - stream.clientHeight < 32) {
-      stream.scrollTop = stream.scrollHeight;
-    }
+    streamFollowTail(stream);
   } else {
     const panel = document.getElementById('goal-detail-panel');
     if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
@@ -2534,87 +2536,128 @@ function renderGoalDetails(g) {
   detailTitle.textContent = goalDisplayName(g);
   detailTitle.title = g.goalId;
   const body = document.getElementById('goal-detail-body');
-  body.replaceChildren();
 
-  // Pending approvals first — the panel's second purpose when a gate is open.
-  if (isGated(g)) {
-    const gates = document.createElement('section');
-    gates.className = 'detail__section detail__section--gate';
-    const gatesLabel = document.createElement('div');
-    gatesLabel.className = 'detail__label detail__label--gate';
-    gatesLabel.textContent = t('gateSectionTitle');
-    gates.appendChild(gatesLabel);
-    const explain = document.createElement('div');
-    explain.className = 'detail__reason';
-    explain.textContent = t('gateSectionHint');
-    gates.appendChild(explain);
-    if (g.userTodos === null) {
-      const loading = document.createElement('div');
-      loading.className = 'detail__reason';
-      loading.textContent = t('gateLoading');
-      gates.appendChild(loading);
-      refreshUserTodos(g);
+  // The stream is appended to incrementally while visible (recordGoalActivity
+  // / tick / upsertGoalStream). Rebuilding it here on every state change
+  // reset the scroll position and made the log impossible to follow — rebuild
+  // only when the panel was closed, the goal switched, or the run reset its
+  // lines.
+  let stream = body.querySelector('.activity-stream');
+  const fresh = !stream || stream.dataset.goal !== g.goalId
+    || stream.children.length > g.activityLines.length;
+
+  const gatesSection = buildGatesSection(g);
+  if (fresh) {
+    body.replaceChildren();
+    stream = document.createElement('div');
+    stream.className = 'activity-stream activity-stream--panel';
+    stream.dataset.goal = g.goalId;
+    if (g.activityLines.length > 0) {
+      for (const entry of g.activityLines) stream.appendChild(activityLineElement(entry));
     } else {
-      for (const todo of g.userTodos) {
-        const item = document.createElement('div');
-        item.className = 'gate-item';
-        const text = document.createElement('div');
-        text.className = 'gate-item__text';
-        const hint = gateActionLabel(todo);
-        const titleEl = document.createElement('div');
-        titleEl.className = 'gate-item__title';
-        titleEl.textContent = hint ? t('gateItemWithType', hint) : t('gateItemTitle');
-        const raw = document.createElement('div');
-        raw.className = 'gate-item__raw';
-        raw.textContent = todo.title || todo.text || todo.todo_id;
-        text.append(titleEl, raw);
-        const approveBtn = document.createElement('button');
-        approveBtn.type = 'button';
-        const todoIsGate = todo.task_class === 'user_gate';
-        approveBtn.className = `btn ${todoIsGate ? 'btn--approve' : ''}`;
-        approveBtn.textContent = todoIsGate ? t('approveGate') : t('completeTodoBtn');
-        approveBtn.onclick = () => openApproveDialog(g, todo);
-        item.append(text, approveBtn);
-        gates.appendChild(item);
-      }
-      if (!g.userTodos.length) {
-        const none = document.createElement('div');
-        none.className = 'detail__reason';
-        const gateWait = (g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn) || null;
-        none.textContent = gateWait
-          ? (waitingLabel(gateWait) === t('groupReview') ? t('groupReview') : t('waitingOn', waitingLabel(gateWait)))
-          : '—';
-        gates.appendChild(none);
-        // A gate with no approvable todo would otherwise be a dead end —
-        // offer the one action that can move it: run a turn.
-        if (!g.running) {
-          const runNext = document.createElement('button');
-          runNext.type = 'button';
-          runNext.className = 'btn btn--primary';
-          runNext.textContent = t('runOnce');
-          runNext.onclick = () => executeRunOnce(g);
-          gates.appendChild(runNext);
-        }
+      const empty = document.createElement('div');
+      empty.className = 'activity-empty';
+      empty.textContent = g.running ? t('activityStarting') : t('activityEmpty');
+      stream.appendChild(empty);
+    }
+    if (gatesSection) body.appendChild(gatesSection);
+    body.appendChild(stream);
+    // Land on the latest: a freshly opened panel starts at the bottom.
+    requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
+    return;
+  }
+
+  // In-sync stream: patch the gates block in place and append missing lines.
+  const oldGates = body.querySelector('.detail__section--gate');
+  if (gatesSection) {
+    if (oldGates) oldGates.replaceWith(gatesSection);
+    else body.insertBefore(gatesSection, stream);
+  } else if (oldGates) {
+    oldGates.remove();
+  }
+  while (stream.children.length < g.activityLines.length) {
+    stream.appendChild(activityLineElement(g.activityLines[stream.children.length]));
+  }
+}
+
+// The "needs you" block, rebuilt cheaply in place on each panel render.
+function buildGatesSection(g) {
+  if (!isGated(g)) return null;
+  const gates = document.createElement('section');
+  gates.className = 'detail__section detail__section--gate';
+  const gatesLabel = document.createElement('div');
+  gatesLabel.className = 'detail__label detail__label--gate';
+  gatesLabel.textContent = t('gateSectionTitle');
+  gates.appendChild(gatesLabel);
+  const explain = document.createElement('div');
+  explain.className = 'detail__reason';
+  explain.textContent = t('gateSectionHint');
+  gates.appendChild(explain);
+  if (g.userTodos === null) {
+    const loading = document.createElement('div');
+    loading.className = 'detail__reason';
+    loading.textContent = t('gateLoading');
+    gates.appendChild(loading);
+    refreshUserTodos(g);
+  } else {
+    for (const todo of g.userTodos) {
+      const item = document.createElement('div');
+      item.className = 'gate-item';
+      const text = document.createElement('div');
+      text.className = 'gate-item__text';
+      const hint = gateActionLabel(todo);
+      const titleEl = document.createElement('div');
+      titleEl.className = 'gate-item__title';
+      titleEl.textContent = hint ? t('gateItemWithType', hint) : t('gateItemTitle');
+      const raw = document.createElement('div');
+      raw.className = 'gate-item__raw';
+      raw.textContent = todo.title || todo.text || todo.todo_id;
+      text.append(titleEl, raw);
+      const approveBtn = document.createElement('button');
+      approveBtn.type = 'button';
+      const todoIsGate = todo.task_class === 'user_gate';
+      approveBtn.className = `btn ${todoIsGate ? 'btn--approve' : ''}`;
+      approveBtn.textContent = todoIsGate ? t('approveGate') : t('completeTodoBtn');
+      approveBtn.onclick = () => openApproveDialog(g, todo);
+      item.append(text, approveBtn);
+      gates.appendChild(item);
+    }
+    if (!g.userTodos.length) {
+      const none = document.createElement('div');
+      none.className = 'detail__reason';
+      const gateWait = (g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn) || null;
+      none.textContent = gateWait
+        ? (waitingLabel(gateWait) === t('groupReview') ? t('groupReview') : t('waitingOn', waitingLabel(gateWait)))
+        : '—';
+      gates.appendChild(none);
+      // A gate with no approvable todo would otherwise be a dead end —
+      // offer the one action that can move it: run a turn.
+      if (!g.running) {
+        const runNext = document.createElement('button');
+        runNext.type = 'button';
+        runNext.className = 'btn btn--primary';
+        runNext.textContent = t('runOnce');
+        runNext.onclick = () => executeRunOnce(g);
+        gates.appendChild(runNext);
       }
     }
-    body.appendChild(gates);
   }
+  return gates;
+}
 
-  // The panel IS the log: the live activity stream, and nothing else.
-  // (Lifecycle actions live on the goal cards themselves.)
-  const stream = document.createElement('div');
-  stream.className = 'activity-stream activity-stream--panel';
-  stream.dataset.goal = g.goalId;
-  if (g.activityLines.length > 0) {
-    for (const entry of g.activityLines) stream.appendChild(activityLineElement(entry));
-  } else {
-    const empty = document.createElement('div');
-    empty.className = 'activity-empty';
-    empty.textContent = g.running ? t('activityStarting') : t('activityEmpty');
-    stream.appendChild(empty);
+// The panel's scroll container is the body, not the stream: the stream grows
+// with its content (block flow), so scrollHeight lives on its parent.
+function streamScroller(stream) {
+  return stream.closest('.detail-panel__body') || stream;
+}
+
+// Keep the tail pinned while new lines arrive — the chat-style follow the
+// user expects, without yanking the scroll when they are reading history.
+function streamFollowTail(stream) {
+  const sc = streamScroller(stream);
+  if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 48) {
+    sc.scrollTop = sc.scrollHeight;
   }
-  body.appendChild(stream);
-  requestAnimationFrame(() => { stream.scrollTop = stream.scrollHeight; });
 }
 
 // Gate approval confirmation: full todo text + optional note, one deliberate
@@ -2733,7 +2776,7 @@ function displayFingerprint() {
       g.last ? decisionKey(g.last) : '',
       g.last?.reason ?? '', g.last?.recommendedAction ?? '',
       g.last?.state ?? g.state ?? '', g.last?.waitingOn ?? g.waitingOn ?? '',
-      g.lastError ?? '', g.currentActivity ?? '',
+      g.lastError ?? '',
       g.userTodos ? `${g.userTodos.length}|${g.userTodos.map((td) => td.todo_id).join(',')}` : '-',
       g.lastRun ? `${g.lastRun.exitCode}|${g.lastRun.cancelled}|${g.lastRun.durationMs}` : '',
     ].join(''));
@@ -3133,16 +3176,20 @@ function upsertGoalStream(g, kind, text) {
     const entry = g.activityLines[lastIndex];
     entry.line = summary;
     entry.time = now;
-    if (stream && stream.children[lastIndex]) patchRow(stream.children[lastIndex]);
+    if (stream && stream.children[lastIndex]) {
+      patchRow(stream.children[lastIndex]);
+      streamFollowTail(stream);
+    }
   } else {
     const entry = { time: now, line: summary, isErr: false, count: 1, kind, stream: true };
     g.activityLines.push(entry);
     if (g.activityLines.length > 240) g.activityLines.splice(0, g.activityLines.length - 240);
     if (stream) {
-      const followTail = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 32;
+      const emptyEl = stream.querySelector('.activity-empty');
+      if (emptyEl) emptyEl.remove();
       stream.appendChild(activityLineElement(entry));
       while (stream.children.length > 240) stream.removeChild(stream.firstChild);
-      if (followTail) stream.scrollTop = stream.scrollHeight;
+      streamFollowTail(stream);
     } else {
       const panel = document.getElementById('goal-detail-panel');
       if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
