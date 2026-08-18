@@ -303,6 +303,8 @@ button, input, select { font: inherit; }
 .gate-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--lx-border); }
 .gate-item:last-child { border-bottom: 0; }
 .gate-item__text { flex: 1; min-width: 0; color: var(--lx-text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.gate-item__title { color: var(--lx-text); }
+.gate-item__raw { margin-top: 2px; color: var(--lx-text-mute); font: 11px/1.45 var(--lx-mono); white-space: pre-wrap; word-break: break-all; }
 .gate-item .btn--approve { flex: 0 0 auto; min-height: 26px; padding: 2px 9px; font-size: 11px; }
 .approve-text {
   margin: 0; padding: 9px 10px; border: 1px solid var(--lx-border); border-left: 3px solid var(--lx-review);
@@ -358,13 +360,17 @@ button, input, select { font: inherit; }
 .activity-stream__line { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; overflow-wrap: anywhere; }
 .activity-stream__time { color: var(--lx-text-mute); }
 .activity-stream__line--err { color: var(--lx-error); }
-/* Agent streamed text reads like speech; the sent instructions are an
-   expandable block. Reasoning streams too, dimmed and italic. */
-.activity-stream__line--agent .activity-stream__text { color: var(--lx-text); }
-.activity-stream__line--think .activity-stream__text { color: var(--lx-text-mute); font-style: italic; }
+/* Agent streamed text reads like chat: one live block, pre-wrap keeps the
+   model's line breaks. Reasoning is one collapsed block, dimmed. */
+.activity-stream__line--agent .activity-stream__text {
+  color: var(--lx-text); font: 12px/1.6 var(--lx-sans);
+  white-space: pre-wrap; word-break: break-word;
+}
 .activity-prompt { grid-column: 1 / -1; }
 .activity-prompt summary { cursor: pointer; color: var(--lx-accent); }
 .activity-prompt summary:hover { text-decoration: underline; }
+.activity-prompt--think summary { color: var(--lx-text-mute); }
+.activity-prompt--think pre { max-height: 200px; }
 .activity-prompt pre {
   margin: 5px 0 0; padding: 7px 8px; max-height: 240px; overflow: auto;
   border: 1px solid var(--lx-border); border-radius: 5px; background: var(--lx-bg);

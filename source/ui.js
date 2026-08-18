@@ -56,7 +56,7 @@ const I18N = {
     confirmDelete: '确认删除',
     activityEmpty: '暂无日志',
     activityModelRound: '新一轮推理开始',
-    thinkLabel: '思考：',
+    thinkBlockTitle: '思考过程（点击展开）',
     elapsedLabel: (t) => `已用时 ${t}`,
     nextPoll: (t) => `下次轮询 ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `间隔 ${iv}m（基准 ${base}m ×${mult}^${n}，上限 ${cap}m）`,
@@ -130,6 +130,8 @@ const I18N = {
     gateCount: (n) => `等你处理 ${n} 项`,
     gateSectionTitle: '等你处理',
     gateLoading: '正在读取待审批事项…',
+    gateItemTitle: '待确认事项',
+    gateItemWithType: (hint) => `待确认事项（${hint}）`,
     approve: '批准 / 完成',
     approveTitle: '确认这项操作？',
     approveNote: '备注（可选，写入 todo 完成记录）',
@@ -211,7 +213,7 @@ const I18N = {
     confirmDelete: 'Delete it',
     activityEmpty: 'No log yet',
     activityModelRound: 'New reasoning round started',
-    thinkLabel: 'Thinking: ',
+    thinkBlockTitle: 'Reasoning (click to expand)',
     elapsedLabel: (t) => `elapsed ${t}`,
     nextPoll: (t) => `next poll in ${t}`,
     intervalMath: (iv, base, mult, n, cap) => `every ${iv}m (base ${base}m ×${mult}^${n}, cap ${cap}m)`,
@@ -285,6 +287,8 @@ const I18N = {
     gateCount: (n) => `${n} item${n > 1 ? 's' : ''} need you`,
     gateSectionTitle: 'Needs your decision',
     gateLoading: 'Loading pending approvals…',
+    gateItemTitle: 'Pending confirmation',
+    gateItemWithType: (hint) => `Pending confirmation (${hint})`,
     approve: 'Approve / complete',
     approveTitle: 'Confirm this action?',
     approveNote: 'Note (optional, recorded on the todo)',
@@ -1026,6 +1030,24 @@ function waitingLabel(w) {
   return String(w).toLowerCase() === 'user' ? t('groupReview') : String(w);
 }
 
+// loopx authors todo texts in its own words; the console frames them with a
+// type label in the UI language so the "needs you" list reads clearly without
+// needing an LLM to translate arbitrary gate content.
+const GATE_ACTION_LABELS = [
+  [/publish|external_review|reviewer|pr_|pull_request/i, '发布 / 提 PR / 外部评审'],
+  [/approval|approve/i, '审批'],
+  [/credential|secret|private/i, '凭据 / 私密材料'],
+  [/production|deploy|release/i, '生产 / 发布操作'],
+  [/submission|leaderboard|public_claim/i, '提交 / 公开宣称'],
+  [/boundary/i, '边界授权'],
+];
+function gateActionLabel(todo) {
+  const kind = String(todo?.action_kind || todo?.actionKind || todo?.task_class || todo?.taskClass || '');
+  if (!kind) return null;
+  for (const [re, label] of GATE_ACTION_LABELS) if (re.test(kind)) return label;
+  return null;
+}
+
 function activityText(line) {
   const text = String(line || '')
     .replace(/^\s*(?:\[[^\]]+\]\s*)+/, '')
@@ -1047,7 +1069,18 @@ function activityLineElement(entry) {
   time.className = 'activity-stream__time';
   time.textContent = entry.time;
   row.appendChild(time);
-  if (entry.kind === 'prompt' && entry.raw) {
+  if (entry.kind === 'think' && entry.stream) {
+    // Reasoning renders as ONE collapsed block, streamed in place — never a
+    // wall of per-paragraph "thinking" rows.
+    const details = document.createElement('details');
+    details.className = 'activity-prompt activity-prompt--think';
+    const summary = document.createElement('summary');
+    summary.textContent = t('thinkBlockTitle');
+    const pre = document.createElement('pre');
+    pre.textContent = entry.line;
+    details.append(summary, pre);
+    row.appendChild(details);
+  } else if (entry.kind === 'prompt' && entry.raw) {
     // The instructions sent to the agent: collapsed by default, expandable.
     const details = document.createElement('details');
     details.className = 'activity-prompt';
@@ -1387,7 +1420,14 @@ function renderGoalDetails(g) {
         item.className = 'gate-item';
         const text = document.createElement('div');
         text.className = 'gate-item__text';
-        text.textContent = todo.title || todo.text || todo.todo_id;
+        const hint = gateActionLabel(todo);
+        const titleEl = document.createElement('div');
+        titleEl.className = 'gate-item__title';
+        titleEl.textContent = hint ? t('gateItemWithType', hint) : t('gateItemTitle');
+        const raw = document.createElement('div');
+        raw.className = 'gate-item__raw';
+        raw.textContent = todo.title || todo.text || todo.todo_id;
+        text.append(titleEl, raw);
         const approveBtn = document.createElement('button');
         approveBtn.type = 'button';
         approveBtn.className = 'btn btn--approve';
@@ -1440,7 +1480,11 @@ function renderGoalDetails(g) {
 // click. The dialog is the only writer of todo complete from the UI.
 function openApproveDialog(g, todo) {
   const dlg = document.getElementById('dlg-approve');
-  document.getElementById('approve-text').textContent = todo.text || todo.title || todo.todo_id;
+  const raw = todo.text || todo.title || todo.todo_id;
+  const hint = gateActionLabel(todo);
+  document.getElementById('approve-text').textContent = hint
+    ? `${t('gateItemWithType', hint)}\n${raw}`
+    : `${t('gateItemTitle')}\n${raw}`;
   const noteInput = document.getElementById('approve-note');
   noteInput.value = '';
   dlg.returnValue = 'cancel';
@@ -1797,6 +1841,7 @@ async function executeRunOnce(g) {
   g.runStartedAt = Date.now();
   g.activityLines = [];
   g.agentTextBuffer = '';
+  g.thinkBuffer = '';
   g.currentActivity = '';
   recordGoalActivity(g, t('activityStarting'));
   // Auto-focus: a task that starts running becomes the selected task, so its
@@ -1928,36 +1973,79 @@ const QUIET_AGENT_TOOLS = new Set([
   'web_search', 'websearch', 'fetch', 'mcp',
 ]);
 
-// The agent's streamed text is accumulated and cut into paragraph-sized
-// lines, so the log reads like the agent talking instead of token spam.
-// Visible text and reasoning (think) both stream — the model's output is the
-// point of the log; thinking renders dimmed with a 思考： label.
+// Chat-style streaming: the agent's reply and its reasoning each render as
+// ONE live block updated in place as chunks arrive (like the host's chat),
+// instead of a new row per paragraph. The old design spammed the log with a
+// wall of 思考： rows full of line breaks.
 function streamAgentText(g, text, think = false) {
   if (!isLiveGoal(g) || !text) return;
-  if (typeof g.agentTextBuffer !== 'string') g.agentTextBuffer = '';
-  g.agentTextBuffer += text;
-  g.agentTextKind = think;
-  const cut = (buf) => {
-    const nl = buf.indexOf('\n');
-    if (nl >= 0) return nl;
-    return buf.length >= 160 ? 160 : -1;
-  };
-  let idx;
-  while ((idx = cut(g.agentTextBuffer)) >= 0) {
-    const segment = g.agentTextBuffer.slice(0, idx).trim();
-    g.agentTextBuffer = g.agentTextBuffer.slice(idx + 1);
-    if (segment) recordGoalActivity(g, think ? `${t('thinkLabel')} ${segment}` : segment, false, think ? 'think' : 'agent');
-  }
+  const key = think ? 'thinkBuffer' : 'agentTextBuffer';
+  if (typeof g[key] !== 'string') g[key] = '';
+  g[key] += text;
+  upsertGoalStream(g, think ? 'think' : 'agent', g[key]);
 }
 
 function flushAgentText(g) {
   if (!isLiveGoal(g)) return;
-  const think = g.agentTextKind === true;
-  if (typeof g.agentTextBuffer === 'string' && g.agentTextBuffer.trim()) {
-    const segment = g.agentTextBuffer.trim();
-    recordGoalActivity(g, think ? `${t('thinkLabel')} ${segment}` : segment, false, think ? 'think' : 'agent');
+  for (const [key, kind] of [['agentTextBuffer', 'agent'], ['thinkBuffer', 'think']]) {
+    if (typeof g[key] === 'string' && g[key].trim()) {
+      upsertGoalStream(g, kind, g[key].trim());
+    }
+    g[key] = '';
   }
-  g.agentTextBuffer = '';
+}
+
+// Create or update the single streaming block for a kind. Status/tool lines
+// between chunks end the block: walk backwards past ticks and continue only
+// the newest stream block of that kind; anything else starts a fresh one.
+function upsertGoalStream(g, kind, text) {
+  const summary = String(text || '').replace(/\s+$/, '');
+  if (!summary) return;
+  if (!Array.isArray(g.activityLines)) g.activityLines = [];
+  const now = new Date().toTimeString().slice(0, 8);
+  let lastIndex = -1;
+  for (let i = g.activityLines.length - 1; i >= 0; i -= 1) {
+    const e = g.activityLines[i];
+    if (e.isTick) continue;
+    if (e.kind === kind && e.stream) lastIndex = i;
+    break;
+  }
+  const stream = document.querySelector(`.activity-stream[data-goal="${CSS.escape(g.goalId)}"]`);
+  const patchRow = (row) => {
+    if (kind === 'think') {
+      const pre = row.querySelector('.activity-prompt--think pre');
+      if (pre) pre.textContent = summary;
+    } else {
+      const textEl = row.querySelector('.activity-stream__text');
+      if (textEl) textEl.textContent = summary;
+    }
+    const timeEl = row.querySelector('.activity-stream__time');
+    if (timeEl) timeEl.textContent = now;
+  };
+  if (lastIndex >= 0) {
+    const entry = g.activityLines[lastIndex];
+    entry.line = summary;
+    entry.time = now;
+    if (stream && stream.children[lastIndex]) patchRow(stream.children[lastIndex]);
+  } else {
+    const entry = { time: now, line: summary, isErr: false, count: 1, kind, stream: true };
+    g.activityLines.push(entry);
+    if (g.activityLines.length > 240) g.activityLines.splice(0, g.activityLines.length - 240);
+    if (stream) {
+      const followTail = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 32;
+      stream.appendChild(activityLineElement(entry));
+      while (stream.children.length > 240) stream.removeChild(stream.firstChild);
+      if (followTail) stream.scrollTop = stream.scrollHeight;
+    } else {
+      const panel = document.getElementById('goal-detail-panel');
+      if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
+    }
+  }
+  if (kind === 'agent') {
+    g.currentActivity = activityText(summary);
+    const cardText = document.querySelector(`.goal__activity-text[data-goal="${CSS.escape(g.goalId)}"]`);
+    if (cardText) cardText.textContent = g.currentActivity;
+  }
 }
 
 // Tool-event params stream in partial JSON fragments. Accumulate them per

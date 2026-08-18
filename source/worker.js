@@ -412,14 +412,15 @@ function normalizeScheduler(schedulerHint) {
 function turnPreamble({ projectDir, goalId, agentId }) {
   const registry = path.join(projectDir, '.loopx', 'registry.json');
   return [
-    `You are the execution agent for LoopX goal "${goalId}" (agent_id: ${agentId}).`,
-    `Repository checkout: ${projectDir}`,
-    `LoopX registry: ${registry} — always pass --registry "${registry}" to loopx commands.`,
-    'The loopx CLI is already installed and working on PATH (fallback: python -m loopx.cli); do NOT run "loopx --version" or "where loopx" more than once per turn.',
-    'Shell note: commands run in PowerShell, not bash. LoopX example commands that end in --turn-instance-id "${LOOPX_TURN:?}" are bash syntax — DO NOT copy them. The --turn-instance-id flag is optional: omit it entirely.',
-    'Rules: work only inside the repository checkout; never force-kill processes you did not start;',
-    'record progress through loopx (todo complete / evidence) before finishing the turn.',
-    'If a loopx command fails, read its error message and fix the invocation — never blindly retry the same command more than twice.',
+    `你是 LoopX 目标 "${goalId}" 的执行 agent（agent_id: ${agentId}）。`,
+    `仓库目录：${projectDir}`,
+    `LoopX 注册表：${registry} —— 调用 loopx 命令时始终带上 --registry "${registry}"。`,
+    'loopx CLI 已安装并位于 PATH（备用方式：python -m loopx.cli）；每轮最多执行一次 "loopx --version"、"where loopx" 之类的探测。',
+    '环境说明：命令在 PowerShell 中运行，不是 bash。loopx 示例命令里以 --turn-instance-id "${LOOPX_TURN:?}" 结尾的写法是 bash 语法 —— 不要照抄；--turn-instance-id 是可选参数，直接省略。',
+    '规则：只在仓库目录内工作；不要强杀不是你启动的进程；',
+    '在结束本轮前，通过 loopx（todo complete / 证据记录）记录进度。',
+    '如果 loopx 命令失败，先读错误信息再修正调用方式 —— 同一命令不要盲目重试超过两次。',
+    '工作语言：所有面向用户的说明、总结与回复请使用中文。',
     '',
   ].join('\n');
 }
@@ -638,7 +639,7 @@ async function writePlannedTodos({ argvPrefix, srcDir, projectDir, goalId, agent
         const completeArgs = [
           'todo', 'complete', '--goal-id', goalId,
           '--todo-id', response.payload.todo_id,
-          '--note', 'approved by task intake confirmation',
+          '--note', '由任务入库确认自动批准',
         ];
         if (todo.taskClass === 'user_gate') completeArgs.push('--decision-outcome', 'approve');
         try {
