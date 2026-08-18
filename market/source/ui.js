@@ -1788,7 +1788,12 @@ function refillComposerTarget() {
       if (isTerminal(g)) continue;
       const option = document.createElement('option');
       option.value = g.goalId;
-      option.textContent = goalDisplayName(g);
+      // Status suffix makes same-repo historical siblings distinguishable in
+      // the dropdown (deepseek-harness-desktop#6 · 已停表 / 自动运行 …).
+      const pending = Array.isArray(g.userTodos) && g.userTodos.length
+        ? ` · ${t('gateCount', g.userTodos.length)}`
+        : '';
+      option.textContent = `${goalDisplayName(g)} · ${goalStatus(g).text}${pending}`;
       option.title = g.goalId;
       select.appendChild(option);
     }
