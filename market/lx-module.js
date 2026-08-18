@@ -755,6 +755,11 @@
       return { ok: true, login: user && user.login ? user.login : null };
     },
 
+    // The market shell whitelist has no gh CLI: there is nothing to reuse.
+    async 'loopx.githubGhToken'() {
+      return { ok: false, token: null };
+    },
+
     // Publish the current fix branch as a PR through the user's fork. Same
     // protocol as the worker edition; git rides the host shell (argv-only,
     // git is allow-listed), REST rides app.net.fetch.

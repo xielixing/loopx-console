@@ -752,6 +752,29 @@ function gitRun(projectDir, args, timeoutMs = 60000) {
   });
 }
 
+// BitFun itself does not store GitHub tokens — its own review platform
+// reuses the local GitHub CLI credentials. Do the same here: when the user
+// has run `gh auth login` on this machine, publish can authenticate without
+// a pasted PAT.
+function ghCliToken() {
+  return new Promise((resolve) => {
+    const child = spawn('gh', ['auth', 'token'], { windowsHide: true });
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d) => { stdout += d; });
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch (_) {}
+      resolve(null);
+    }, 10000);
+    child.on('error', () => { clearTimeout(timer); resolve(null); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const token = stdout.trim();
+      resolve(code === 0 && token ? token : null);
+    });
+  });
+}
+
 async function fetchOpenIssues(repo) {
   const issues = [];
   // /repos/…/issues interleaves PRs (every PR is an issue) — filter them out,
@@ -896,6 +919,46 @@ module.exports = {
     if (!execute) return intake;
     if (!goalId) throw new Error('loopx.issueIntake: goalId is required to write todos');
     return writePlannedTodos({ argvPrefix, srcDir, projectDir, goalId, agentId: null, intake });
+  },
+
+  // Probe the local GitHub CLI credential (`gh auth token`). The UI uses it
+  // before asking the user to paste a PAT: a machine that already ran
+  // `gh auth login` needs no manual token.
+  async 'loopx.githubGhToken'() {
+    const token = await ghCliToken();
+    return { ok: Boolean(token), token: token || null };
+  },
+
+  // One-click full reset: back up (rename) and wipe every loopx data
+  // location this console touches — the global registry/runtime, per-checkout
+  // registries and goal states, and the console's clone cache. Nothing is
+  // unlinked: everything moves into a timestamped backup directory so the
+  // operation stays recoverable.
+  async 'loopx.resetAll'({ projectDirs = null } = {}) {
+    const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+    const backupRoot = path.join(os.homedir(), '.bitfun', 'loopx-console', `cleared-${stamp}`);
+    fs.mkdirSync(backupRoot, { recursive: true });
+    const moved = [];
+    const renameAway = (src, name) => {
+      if (!fs.existsSync(src)) return;
+      const dst = path.join(backupRoot, name);
+      try {
+        fs.renameSync(src, dst);
+        moved.push(dst);
+      } catch (err) {
+        throw new Error(`cannot move ${src} into the backup: ${err.message}`);
+      }
+    };
+    dbgWorker('resetAll:start', `backup=${backupRoot}`);
+    renameAway(path.join(os.homedir(), '.codex', 'loopx'), 'loopx-global');
+    renameAway(cloneCacheRoot(), 'repos-clone-cache');
+    for (const dir of (Array.isArray(projectDirs) ? projectDirs : [])) {
+      if (!dir) continue;
+      renameAway(path.join(dir, '.loopx'), `checkout-${Buffer.from(dir).toString('base64').slice(0, 24)}-loopx`);
+      renameAway(path.join(dir, '.codex', 'goals'), `checkout-${Buffer.from(dir).toString('base64').slice(0, 24)}-goals`);
+    }
+    dbgWorker('resetAll:done', `moved=${moved.length}`);
+    return { ok: true, backupDir: backupRoot, moved };
   },
 
   // Product-level task intake. This adapts natural-language goals, repository
@@ -1156,7 +1219,12 @@ module.exports = {
     projectDir = null, goalId = null, token = null, title = '', body = '', branch: requestedBranch = null,
   } = {}) {
     if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
-    if (!token) throw new Error('loopx.publishPr: token is required');
+    if (!token) {
+      // No configured PAT: fall back to the local GitHub CLI credential so a
+      // machine that ran `gh auth login` publishes without a pasted token.
+      token = await ghCliToken();
+      if (!token) throw new Error('loopx.publishPr: token is required (configure one in the console, or run gh auth login)');
+    }
     dbgWorker('publishPr:start', `goalId=${goalId || ''} branch=${requestedBranch || ''}`);
     let branch = (await gitRun(projectDir, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
     if (!branch || branch === 'HEAD') throw new Error('publishPr: the checkout is in detached HEAD state');

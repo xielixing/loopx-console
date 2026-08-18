@@ -757,6 +757,11 @@
       return { ok: true, login: user && user.login ? user.login : null };
     },
 
+    // The market shell whitelist has no gh CLI: there is nothing to reuse.
+    async 'loopx.githubGhToken'() {
+      return { ok: false, token: null };
+    },
+
     // Publish the current fix branch as a PR through the user's fork. Same
     // protocol as the worker edition; git rides the host shell (argv-only,
     // git is allow-listed), REST rides app.net.fetch.
@@ -1369,7 +1374,7 @@ const I18N = {
     approveDone: '已批准，任务将继续推进',
     todoDoneFeedback: '已标记完成',
     githubTokenTitle: 'GitHub Token 设置',
-    githubTokenExplain: '用于 fork 仓库、推送分支、创建 PR。需要一个 fine-grained Personal Access Token（Repository 读写权限）。Token 仅保存在本机 BitFun 应用存储中，不会上传。',
+    githubTokenExplain: '用于 fork 仓库、推送分支、创建 PR。需要一个 fine-grained Personal Access Token（Repository 读写权限）。Token 仅保存在本机 BitFun 应用存储中，不会上传。如果本机已用 GitHub CLI 登录（gh auth login），发布时会自动复用，无需粘贴 Token。',
     githubTokenPlaceholder: 'ghp_ 或 github_pat_ …',
     githubTokenSave: '保存并验证',
     githubTokenStatus: '当前状态：',
@@ -1385,6 +1390,12 @@ const I18N = {
     publishDone: (url) => `✅ PR 已提交：${url}`,
     publishFailed: 'PR 提交失败',
     publishNeedToken: '发布 PR 需要先配置 GitHub Token',
+    resetLoopxTitle: '清除所有 loopx 状态？',
+    resetLoopxText: '将备份并清除本机全部 loopx 相关状态：所有任务（goal）、todo 与运行历史、全局/项目注册表、控制台的仓库克隆缓存和持久化日志。数据会整体移入 ~/.bitfun/loopx-console/cleared-<时间戳> 备份目录，可手动找回。此操作不可撤销。',
+    resetLoopxConfirm: '全部清除',
+    resetLoopxWorking: '正在清除…',
+    resetLoopxDone: (dir) => `已清除全部 loopx 状态（备份保留在 ${dir}）`,
+    resetLoopxFailed: '清除失败',
     approveFailed: (e) => `批准失败：${e}`,
     notifGateTitle: 'LoopX 需要你审批',
     notifGateBody: (id, block, info) => (info > 0
@@ -1572,7 +1583,7 @@ const I18N = {
     approveDone: 'Approved — the task will continue',
     todoDoneFeedback: 'Marked done',
     githubTokenTitle: 'GitHub token settings',
-    githubTokenExplain: 'Used to fork the repository, push the branch, and create the PR. Provide a fine-grained Personal Access Token with Repository read/write. The token stays in this machine\'s BitFun app storage only.',
+    githubTokenExplain: 'Used to fork the repository, push the branch, and create the PR. Provide a fine-grained Personal Access Token with Repository read/write. The token stays in this machine\'s BitFun app storage only. If the GitHub CLI is already signed in on this machine (gh auth login), publishing reuses it automatically — no token needed.',
     githubTokenPlaceholder: 'ghp_ or github_pat_ …',
     githubTokenSave: 'Save & verify',
     githubTokenStatus: 'Status: ',
@@ -1588,6 +1599,12 @@ const I18N = {
     publishDone: (url) => `✅ PR submitted: ${url}`,
     publishFailed: 'PR submission failed',
     publishNeedToken: 'A GitHub token is required to publish the PR',
+    resetLoopxTitle: 'Clear all LoopX state?',
+    resetLoopxText: 'This backs up and removes every LoopX-related state on this machine: all goals, todos and run history, global/project registries, the console\'s clone cache and persisted logs. Everything moves into a timestamped backup under ~/.bitfun/loopx-console/cleared-<timestamp> so it stays recoverable. This cannot be undone.',
+    resetLoopxConfirm: 'Clear everything',
+    resetLoopxWorking: 'Clearing…',
+    resetLoopxDone: (dir) => `All LoopX state cleared (backup kept at ${dir})`,
+    resetLoopxFailed: 'Clear failed',
     approveFailed: (e) => `Approval failed: ${e}`,
     notifGateTitle: 'LoopX needs your approval',
     notifGateBody: (id, block, info) => (info > 0
@@ -2244,13 +2261,24 @@ async function approveTodo(g, todo, note, button) {
     // pushes the branch and creates the PR first, then completes the todo so
     // loopx reconciles the created PR instead of pushing on its own.
     if (isPublishTodo(todo)) {
-      const token = String(S.config.githubToken || '').trim();
+      let token = String(S.config.githubToken || '').trim();
       if (!token) {
-        log(`[${g.goalId}] ${t('publishNeedToken')}`, true);
-        recordGoalActivity(g, t('publishNeedToken'), true);
-        if (button) button.disabled = false;
-        openTokenDialog();
-        return false;
+        // Reuse the machine's GitHub CLI credential when available — BitFun
+        // itself does not store GitHub tokens and delegates to gh auth.
+        try {
+          const probe = await app.call('loopx.githubGhToken', {});
+          if (probe && probe.ok && probe.token) {
+            token = probe.token;
+            log(`[${g.goalId}] using local GitHub CLI credentials for publish`);
+          }
+        } catch (_) {}
+        if (!token) {
+          log(`[${g.goalId}] ${t('publishNeedToken')}`, true);
+          recordGoalActivity(g, t('publishNeedToken'), true);
+          if (button) button.disabled = false;
+          openTokenDialog();
+          return false;
+        }
       }
       recordGoalActivity(g, t('publishWorking'));
       try {
@@ -3424,6 +3452,54 @@ async function clearGitHubToken() {
   document.getElementById('token-status').textContent = `${t('githubTokenStatus')}${t('githubTokenMissing')}`;
 }
 
+// ── one-click loopx state reset ─────────────────────────────
+// Historical goals (pre one-repo-one-goal) pollute the board and dropdown;
+// this wipes every loopx data location with a timestamped backup so the
+// console starts from a clean slate.
+function openResetConfirm() {
+  const dlg = document.getElementById('dlg-stop');
+  document.getElementById('stop-title').textContent = t('resetLoopxTitle');
+  document.getElementById('stop-text').textContent = t('resetLoopxText');
+  dlg.querySelector('button[value="confirm"]').textContent = t('resetLoopxConfirm');
+  dlg.returnValue = 'cancel';
+  dlg.onclose = () => {
+    if (dlg.returnValue !== 'confirm') return;
+    resetLoopxState();
+  };
+  dlg.showModal();
+}
+
+async function resetLoopxState() {
+  setComposerBusy(true, t('resetLoopxWorking'));
+  try {
+    const res = await app.call('loopx.resetAll', {
+      projectDirs: [S.config.projectDir, ...Object.values(S.config.projectByGoal || {})].filter(Boolean),
+    });
+    if (!res.ok) throw new Error(res.error || 'reset failed');
+    // Clear every per-goal UI binding and the persisted logs.
+    for (const key of ['ownedGoals', 'monitorByGoal', 'agentByGoal', 'autoRunByGoal', 'modelByGoal', 'projectByGoal', 'stoppedByGoal', 'autoRunBeforeStop']) {
+      S.config[key] = {};
+    }
+    S.persistedLogs = {};
+    await saveConfig();
+    try { await app.storage.set('logs', {}); } catch (_) {}
+    S.goals.clear();
+    S.activeGoalId = null;
+    document.getElementById('goal-detail-panel').hidden = true;
+    document.getElementById('detail-empty').hidden = false;
+    await refreshGoals();
+    renderAllGoals(true);
+    setComposerBusy(false, '');
+    setTaskFeedback(t('resetLoopxDone', res.backupDir || ''), 'ok');
+    log(`loopx state reset (backup: ${res.backupDir || '?'})`);
+  } catch (err) {
+    const message = String(err && err.message || err);
+    setComposerBusy(false, '');
+    setTaskFeedback(`${t('resetLoopxFailed')}: ${message}`, 'error');
+    log(`loopx state reset failed: ${message}`, true);
+  }
+}
+
 // Stopping is a deliberate, whole-task action: explain what it does before
 // doing it, so the task never "vanishes" as a surprise.
 function openStopConfirm(g) {
@@ -4208,6 +4284,7 @@ document.getElementById('btn-refresh').addEventListener('click', refreshGoals);
 document.getElementById('btn-github-token').addEventListener('click', openTokenDialog);
 document.getElementById('btn-token-save').addEventListener('click', saveGitHubToken);
 document.getElementById('btn-token-clear').addEventListener('click', clearGitHubToken);
+document.getElementById('btn-reset-loopx').addEventListener('click', openResetConfirm);
 document.getElementById('btn-retry-detect').addEventListener('click', async () => {
   if (await detect()) refreshGoals();
 });
