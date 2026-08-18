@@ -143,6 +143,7 @@ const I18N = {
     gateExplainPreload: '该改动为桌面插件增加一个最小 Electron preload 桥。',
     gateBackground: '背景：',
     gateSummaryLoading: '正在生成中文摘要…',
+    autoApprovedWrite: '已按入库授权自动批准：写权限（离开只读适配器）',
     conclusionMerged: '结论：已修复并合并',
     conclusionCompleted: '结论：修复已完成',
     conclusionNoFollowup: '结论：无需修复（无后续动作）',
@@ -343,6 +344,7 @@ const I18N = {
     gateExplainPreload: 'This change adds a minimal Electron preload bridge to the desktop plugin.',
     gateBackground: 'Background: ',
     gateSummaryLoading: 'Generating the Chinese summary…',
+    autoApprovedWrite: 'Auto-approved per intake consent: write access (leaving the read-only adapter)',
     conclusionMerged: 'Conclusion: fixed and merged',
     conclusionCompleted: 'Conclusion: fix completed',
     conclusionNoFollowup: 'Conclusion: no fix needed (no follow-up action)',
@@ -869,6 +871,45 @@ async function refreshUserTodos(g, force = false) {
     });
     g.userTodos = res.ok ? res.todos : [];
     g.userTodosAt = Date.now();
+    // The intake sheet already granted write scope (bootstrap
+    // --write-scope write): a "leave the read-only adapter" gate just re-asks
+    // for that consent, so complete it automatically and reload — the user
+    // keeps only real decisions (design choices) and publish/PR approvals.
+    const writeGates = g.userTodos.filter((td) =>
+      td.task_class === 'user_gate'
+      && /write access|leave the read-?only adapter|connected-read-only/i.test(String(td.text || td.title || '')));
+    for (const todo of writeGates) {
+      try {
+        const done = await app.call('loopx.completeTodo', {
+          argvPrefix: S.config.argvPrefix,
+          srcDir: S.config.srcDir || null,
+          projectDir: goalProjectDir(g.goalId),
+          goalId: g.goalId,
+          todoId: todo.todo_id,
+          note: '由任务入库确认自动批准（写权限已预授）',
+          decisionOutcome: 'approve',
+        });
+        if (done.ok) {
+          recordGoalActivity(g, t('autoApprovedWrite'), false, 'agent');
+          log(`[${g.goalId}] auto-approved write-access gate (${todo.todo_id})`);
+        }
+      } catch (err) {
+        log(`[${g.goalId}] auto-approve write gate failed: ${err.message || err}`, true);
+      }
+    }
+    if (writeGates.length) {
+      const reload = await app.call('loopx.listTodos', {
+        argvPrefix: S.config.argvPrefix,
+        projectDir: goalProjectDir(g.goalId),
+        goalId: g.goalId,
+        role: 'user',
+        status: 'open',
+      });
+      g.userTodos = reload.ok ? reload.todos : g.userTodos;
+      // The gate may be cleared by the approvals: re-decide immediately so
+      // the goal resumes instead of waiting for the next heartbeat.
+      pollNow(g, { force: true });
+    }
     // Agent-lane todos carry the issue titles ("Fix GitHub issue #N: <title>")
     // used as the gate items' background, and they persist across restarts.
     try {
