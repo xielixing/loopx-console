@@ -115,6 +115,13 @@ Issue 链接，由 BitFun 宿主 Agent 驱动本机 loopx CLI 持续修复，心
 - **右侧面板 = 纯日志**（审批项除外）：模型文本+思考全流式、工具行带参数、
   每个工具调用一行、连续重复折叠 ×N、标题下实时计时器。
 - **生命周期按钮在卡片上**：中止 / 继续 / 删除（带确认框），面板不再放按钮。
+- **发布即 PR（默认）**：publish 类门禁（external_pr_creation / external_review_request
+  等）批准时，控制台自己执行 **fork（没有则创建并等待）→ 推送分支 → REST 创建 PR**，
+  然后完成 todo 让 loopx 对账；Agent 不自行 push。PR 标题统一带
+  **`[bitfun-loopx]`** 前缀、正文带同一标识（GitHub 用 `"bitfun-loopx" in:title`
+  即可统计本工具产出的 PR）。GitHub Token（fine-grained PAT，repo 读写）由用户
+  在顶栏「GitHub 设置」配置，仅存于本机应用存储；push 时 token 只走一次性的
+  x-access-token URL，不写入 git config。
 
 ## 6. 验证命令
 

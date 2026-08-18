@@ -105,6 +105,24 @@ lane 的 post-response continuation 投递，Agent 下一步就会读到。
 - 发送后立即做一次轮询（force），自动执行会在下一步消费这条指令；
   活动流里记录「你：…」原文。
 
+## 3.3 发布（提交 PR，默认行为）
+
+publish 类门禁（`external_pr_creation` / `external_review_request` 等）是
+**控制台自己提交 PR 的入口**，批准即发布：
+
+1. 用户在顶栏「GitHub 设置」配置 fine-grained PAT（Repository 读写），
+   保存时经 `GET /user` 验证；仅存于本机应用存储。
+2. 批准发布门禁时（默认动作＝提交 PR）：`loopx.publishPr` 执行
+   **检查/创建 fork（POST /repos/{o}/{r}/forks，轮询至就绪）→
+   `git push` 分支到用户 fork（一次性 x-access-token URL，不落 git config）→
+   REST 创建 PR**（head=用户 fork 分支，base=上游默认分支；同分支已有
+   open PR 时复用不重复建）。
+3. PR **标题带 `[bitfun-loopx]` 前缀**、正文带
+   `Created by BitFun LoopX Console (bitfun-loopx).` 标识——GitHub 上可用
+   `"bitfun-loopx" in:title` 统计本工具产出的全部 PR。
+4. 创建成功后完成发布 todo 并把 PR 链接写入 todo note，loopx 据此对账，
+   Agent 不再自行 push/建 PR；失败则门禁保持打开、日志写明原因。
+
 ## 4. 双层强制
 
 - **客户端**（ui.js）：`taskInputKind` / `firstUnsupportedGithubUrl` 即时反馈，
@@ -123,7 +141,6 @@ lane 的 post-response continuation 投递，Agent 下一步就会读到。
 
 ## 6. 未来候选（不承诺）
 
-- GitHub token → 自动提 PR（敏感凭证，独立设计：加密存储、权限声明、撤销）
 - 浅克隆选项（大仓库加速）
 - 按 capability 绑定的其它目标类型（需 loopx 侧能力 + 独立评审）
 - 市场版（无 worker + `shell.exec` argv 重构，执行能力收窄）

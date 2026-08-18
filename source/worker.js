@@ -663,34 +663,48 @@ async function writePlannedTodos({ argvPrefix, srcDir, projectDir, goalId, agent
 // loopx itself has no repo-wide issue listing (issue-fix workflow-plan takes
 // exactly one --url), so the console enumerates open issues via the anonymous
 // GitHub REST API. Public repos only; unauthenticated quota is 60 req/hour.
-function githubApiGet(apiPath) {
+// With a token the request authenticates (Bearer) and POST/PUT become
+// available — used by the PR publish flow (fork / push / pull request).
+function githubApiRequest(apiPath, {
+  method = 'GET', token = null, jsonBody = null, allow404 = false,
+} = {}) {
   return new Promise((resolve, reject) => {
-    const req = https.get({
+    const bodyText = jsonBody === null ? null : JSON.stringify(jsonBody);
+    const headers = {
+      'User-Agent': 'BitFun-LoopX-Console',
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (bodyText) headers['Content-Type'] = 'application/json';
+    const req = https.request({
       hostname: 'api.github.com',
       path: apiPath,
-      headers: {
-        'User-Agent': 'BitFun-LoopX-Console',
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      timeout: 20000,
+      method,
+      headers,
+      timeout: 30000,
     }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => {
+        if (allow404 && res.statusCode === 404) { resolve(null); return; }
         if (res.statusCode === 403 || res.statusCode === 429) {
           reject(new Error(res.headers['x-ratelimit-remaining'] === '0'
-            ? 'GitHub API rate limit exceeded (anonymous quota is 60 requests/hour); retry later'
+            ? 'GitHub API rate limit exceeded; retry later'
             : `GitHub API refused the request (HTTP ${res.statusCode})`));
+          return;
+        }
+        if (res.statusCode === 401) {
+          reject(new Error('GitHub token is invalid or expired'));
           return;
         }
         if (res.statusCode === 404) {
           reject(new Error(`GitHub repository not found (or private): ${apiPath.split('?')[0]}`));
           return;
         }
-        if (res.statusCode !== 200) {
-          reject(new Error(`GitHub API HTTP ${res.statusCode} for ${apiPath.split('?')[0]}`));
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(`GitHub API HTTP ${res.statusCode} for ${method} ${apiPath.split('?')[0]}`));
           return;
         }
         try {
@@ -702,6 +716,35 @@ function githubApiGet(apiPath) {
     });
     req.on('timeout', () => { req.destroy(new Error('GitHub API request timed out')); });
     req.on('error', reject);
+    if (bodyText) req.write(bodyText);
+    req.end();
+  });
+}
+
+function githubApiGet(apiPath) {
+  return githubApiRequest(apiPath);
+}
+
+// One-shot git invocation bound to a checkout directory.
+function gitRun(projectDir, args, timeoutMs = 60000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, { cwd: projectDir, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch (_) {}
+      reject(new Error(`git ${args[0]} timed out after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(`git ${args[0]} failed (exit ${code}): ${stderr.trim().slice(0, 300)}`));
+    });
   });
 }
 
@@ -1091,6 +1134,89 @@ module.exports = {
     const { result, payload } = await runJson(argvPrefix, projectDir, args, { srcDir });
     const ok = result.code === 0 && payload?.ok !== false;
     return { ok, payload, error: ok ? null : (payload?.error || result.stderr.slice(0, 300) || 'todo complete failed') };
+  },
+
+  // Validates a GitHub token and returns its login — the settings dialog
+  // checks the token at configuration time instead of at publish time.
+  async 'loopx.githubUser'({ token = null } = {}) {
+    if (!token) throw new Error('loopx.githubUser: token is required');
+    const user = await githubApiRequest('/user', { token });
+    return { ok: true, login: user && user.login ? user.login : null };
+  },
+
+  // Publish the current fix branch as a PR through the user's fork: ensure
+  // the fork exists (create it when missing), push the branch, then open a
+  // pull request against the upstream default branch. The UI composes the
+  // [bitfun-loopx] marked title/body so the tool's PRs stay countable.
+  async 'loopx.publishPr'({
+    projectDir = null, goalId = null, token = null, title = '', body = '',
+  } = {}) {
+    if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
+    if (!token) throw new Error('loopx.publishPr: token is required');
+    dbgWorker('publishPr:start', `goalId=${goalId || ''}`);
+    const branch = (await gitRun(projectDir, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
+    if (!branch || branch === 'HEAD') throw new Error('publishPr: the checkout is in detached HEAD state');
+    const origin = (await gitRun(projectDir, ['remote', 'get-url', 'origin'])).stdout.trim();
+    const repoMatch = origin.match(/github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+    if (!repoMatch) throw new Error(`publishPr: cannot parse repository from origin "${origin}"`);
+    const owner = repoMatch[1];
+    const repo = repoMatch[2].replace(/\.git$/i, '');
+    const user = await githubApiRequest('/user', { token });
+    const login = String((user && user.login) || '').trim();
+    if (!login) throw new Error('publishPr: GitHub token did not resolve a login');
+
+    // Fork: reuse an existing fork; create and wait when absent.
+    let fork = await githubApiRequest(`/repos/${login}/${repo}`, { token, allow404: true });
+    if (!fork) {
+      dbgWorker('publishPr:forking', `${owner}/${repo} -> ${login}/${repo}`);
+      await githubApiRequest(`/repos/${owner}/${repo}/forks`, { token, method: 'POST', jsonBody: {} });
+      for (let i = 0; i < 30; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        fork = await githubApiRequest(`/repos/${login}/${repo}`, { token, allow404: true });
+        if (fork) break;
+      }
+      if (!fork) throw new Error('publishPr: the fork did not become ready within 2 minutes');
+    }
+
+    // Push the fix branch to the user's fork. The token rides the push URL
+    // for this single command; nothing is written to git config.
+    const pushUrl = `https://x-access-token:${token}@github.com/${login}/${repo}.git`;
+    dbgWorker('publishPr:push', `${login}/${repo}@${branch}`);
+    try {
+      await gitRun(projectDir, ['push', pushUrl, `HEAD:refs/heads/${branch}`], 300000);
+    } catch (err) {
+      throw new Error(String(err.message || err).split(token).join('***'));
+    }
+
+    // Open the PR against the upstream default branch.
+    const upstream = await githubApiRequest(`/repos/${owner}/${repo}`, { token });
+    const base = (upstream && upstream.default_branch) || 'main';
+    let pr;
+    try {
+      pr = await githubApiRequest(`/repos/${owner}/${repo}/pulls`, {
+        token, method: 'POST',
+        jsonBody: { title, head: `${login}:${branch}`, base, body },
+      });
+    } catch (err) {
+      // A PR for this branch may already exist (publish retry): reuse it.
+      const existing = await githubApiRequest(
+        `/repos/${owner}/${repo}/pulls?state=open&head=${encodeURIComponent(`${login}:${branch}`)}`,
+        { token },
+      );
+      const found = Array.isArray(existing) && existing[0];
+      if (!found) throw err;
+      pr = found;
+    }
+    const prUrl = pr && pr.html_url ? pr.html_url : '';
+    if (!prUrl) throw new Error('publishPr: GitHub did not return a PR url');
+    dbgWorker('publishPr:done', `pr=${prUrl}`);
+    return {
+      ok: true,
+      prUrl,
+      prNumber: pr.number ?? null,
+      branch,
+      forkUrl: (fork && fork.html_url) || `https://github.com/${login}/${repo}`,
+    };
   },
 
   // Creates (mode 'new') or steers (mode 'guide') a goal. Returns immediately

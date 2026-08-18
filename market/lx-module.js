@@ -445,6 +445,32 @@
     }
   }
 
+  // Token-authenticated GitHub REST request through the host's net bridge
+  // (api.github.com is allow-listed). allow404 resolves null instead of
+  // rejecting, used by the fork existence probe.
+  const ghApi = async (token, apiPath, method = 'GET', jsonBody = null, allow404 = false) => {
+    const res = await app.net.fetch(`https://api.github.com${apiPath}`, {
+      method,
+      headers: {
+        'User-Agent': 'BitFun-LoopX-Console',
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(jsonBody !== null ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(jsonBody !== null ? { body: JSON.stringify(jsonBody) } : {}),
+    });
+    if (allow404 && res.status === 404) return null;
+    if (res.status === 401) throw new Error('GitHub token is invalid or expired');
+    if (res.status === 403 || res.status === 429) {
+      throw new Error('GitHub API refused the request (rate limit or scope problem)');
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`GitHub API HTTP ${res.status} for ${method} ${apiPath}`);
+    }
+    try { return JSON.parse(res.body); } catch (_) { return {}; }
+  };
+
   // ── the loopx.* method table ───────────────────────────────────────
   const Lx = {
     async 'loopx.detect'({ argvPrefix = null, srcDir = null } = {}) {
@@ -721,6 +747,76 @@
       const { code, payload, stderr } = await runLoopx(projectDir, args, 60000);
       const ok = code === 0 && payload?.ok !== false;
       return { ok, payload, error: ok ? null : (payload?.error || stderr.slice(0, 300) || 'todo complete failed') };
+    },
+
+    async 'loopx.githubUser'({ token = null } = {}) {
+      if (!token) throw new Error('loopx.githubUser: token is required');
+      const user = await ghApi(token, '/user');
+      return { ok: true, login: user && user.login ? user.login : null };
+    },
+
+    // Publish the current fix branch as a PR through the user's fork. Same
+    // protocol as the worker edition; git rides the host shell (argv-only,
+    // git is allow-listed), REST rides app.net.fetch.
+    async 'loopx.publishPr'({
+      projectDir = null, goalId = null, token = null, title = '', body = '',
+    } = {}) {
+      if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
+      if (!token) throw new Error('loopx.publishPr: token is required');
+      const runGit = (args, timeoutMs = 60000) => app.shell.exec({
+        args: ['git', ...args], timeout: timeoutMs, cwd: projectDir,
+      });
+      let r = await runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
+      if (r.exit_code !== 0) throw new Error(`git rev-parse failed: ${r.stderr.trim().slice(0, 200)}`);
+      const branch = String(r.stdout || '').trim();
+      if (!branch || branch === 'HEAD') throw new Error('publishPr: the checkout is in detached HEAD state');
+      r = await runGit(['remote', 'get-url', 'origin']);
+      const repoMatch = String(r.stdout || '').match(/github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+      if (!repoMatch) throw new Error(`publishPr: cannot parse repository from origin "${String(r.stdout).trim()}"`);
+      const owner = repoMatch[1];
+      const repo = repoMatch[2].replace(/\.git$/i, '');
+      const user = await ghApi(token, '/user');
+      const login = String((user && user.login) || '').trim();
+      if (!login) throw new Error('publishPr: GitHub token did not resolve a login');
+
+      let fork = await ghApi(token, `/repos/${login}/${repo}`, 'GET', null, true);
+      if (!fork) {
+        await ghApi(token, `/repos/${owner}/${repo}/forks`, 'POST', {});
+        for (let i = 0; i < 30 && !fork; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 4000));
+          fork = await ghApi(token, `/repos/${login}/${repo}`, 'GET', null, true);
+        }
+        if (!fork) throw new Error('publishPr: the fork did not become ready within 2 minutes');
+      }
+
+      const pushUrl = `https://x-access-token:${token}@github.com/${login}/${repo}.git`;
+      r = await runGit(['push', pushUrl, `HEAD:refs/heads/${branch}`], 300000);
+      if (r.exit_code !== 0) {
+        throw new Error(String(r.stderr || '').split(token).join('***').trim().slice(0, 300) || 'git push failed');
+      }
+
+      const upstream = await ghApi(token, `/repos/${owner}/${repo}`);
+      const base = (upstream && upstream.default_branch) || 'main';
+      let pr;
+      try {
+        pr = await ghApi(token, `/repos/${owner}/${repo}/pulls`, 'POST', {
+          title, head: `${login}:${branch}`, base, body,
+        });
+      } catch (err) {
+        const existing = await ghApi(token, `/repos/${owner}/${repo}/pulls?state=open&head=${encodeURIComponent(`${login}:${branch}`)}`);
+        const found = Array.isArray(existing) && existing[0];
+        if (!found) throw err;
+        pr = found;
+      }
+      const prUrl = pr && pr.html_url ? pr.html_url : '';
+      if (!prUrl) throw new Error('publishPr: GitHub did not return a PR url');
+      return {
+        ok: true,
+        prUrl,
+        prNumber: pr.number ?? null,
+        branch,
+        forkUrl: (fork && fork.html_url) || `https://github.com/${login}/${repo}`,
+      };
     },
 
     async 'loopx.taskIntake'({

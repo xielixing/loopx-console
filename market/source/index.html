@@ -44,6 +44,9 @@
         <button id="btn-refresh" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="refresh">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 2v3h-3"/></svg>
         </button>
+        <button id="btn-github-token" class="btn btn--icon" type="button" data-i18n-attr="title" data-i18n="githubTokenTitle">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.6" cy="10.4" r="1.7"/><path d="M5.6 10.4V5a2.6 2.6 0 0 1 5.2 0v5.4M10.8 10.4a1.7 1.7 0 1 1-5.2 0"/></svg>
+        </button>
       </div>
     </header>
 
@@ -140,6 +143,20 @@
         <div class="dlg__actions">
           <button type="button" value="cancel" class="btn dlg-cancel" data-i18n="cancel">取消</button>
           <button value="approve" class="btn btn--approve" data-i18n="approveConfirm">确认批准</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="dlg-token" class="dlg">
+      <form method="dialog" class="dlg__form">
+        <h2 data-i18n="githubTokenTitle">GitHub Token 设置</h2>
+        <p class="dlg__note" data-i18n="githubTokenExplain">用于 fork 仓库、推送分支、创建 PR…</p>
+        <div class="dlg__note"><span data-i18n="githubTokenStatus">当前状态：</span><span id="token-status"></span></div>
+        <label class="field"><span>Token</span><input id="token-input" type="password" spellcheck="false" autocomplete="off" data-i18n-placeholder="githubTokenPlaceholder" placeholder="ghp_ 或 github_pat_ …" /></label>
+        <div class="dlg__actions">
+          <button type="button" value="cancel" class="btn dlg-cancel" data-i18n="cancel">取消</button>
+          <button type="button" id="btn-token-clear" class="btn" data-i18n="deleteShort">删除</button>
+          <button type="button" id="btn-token-save" class="btn btn--primary" data-i18n="githubTokenSave">保存并验证</button>
         </div>
       </form>
     </dialog>

@@ -447,6 +447,32 @@
     }
   }
 
+  // Token-authenticated GitHub REST request through the host's net bridge
+  // (api.github.com is allow-listed). allow404 resolves null instead of
+  // rejecting, used by the fork existence probe.
+  const ghApi = async (token, apiPath, method = 'GET', jsonBody = null, allow404 = false) => {
+    const res = await app.net.fetch(`https://api.github.com${apiPath}`, {
+      method,
+      headers: {
+        'User-Agent': 'BitFun-LoopX-Console',
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(jsonBody !== null ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(jsonBody !== null ? { body: JSON.stringify(jsonBody) } : {}),
+    });
+    if (allow404 && res.status === 404) return null;
+    if (res.status === 401) throw new Error('GitHub token is invalid or expired');
+    if (res.status === 403 || res.status === 429) {
+      throw new Error('GitHub API refused the request (rate limit or scope problem)');
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`GitHub API HTTP ${res.status} for ${method} ${apiPath}`);
+    }
+    try { return JSON.parse(res.body); } catch (_) { return {}; }
+  };
+
   // ── the loopx.* method table ───────────────────────────────────────
   const Lx = {
     async 'loopx.detect'({ argvPrefix = null, srcDir = null } = {}) {
@@ -723,6 +749,76 @@
       const { code, payload, stderr } = await runLoopx(projectDir, args, 60000);
       const ok = code === 0 && payload?.ok !== false;
       return { ok, payload, error: ok ? null : (payload?.error || stderr.slice(0, 300) || 'todo complete failed') };
+    },
+
+    async 'loopx.githubUser'({ token = null } = {}) {
+      if (!token) throw new Error('loopx.githubUser: token is required');
+      const user = await ghApi(token, '/user');
+      return { ok: true, login: user && user.login ? user.login : null };
+    },
+
+    // Publish the current fix branch as a PR through the user's fork. Same
+    // protocol as the worker edition; git rides the host shell (argv-only,
+    // git is allow-listed), REST rides app.net.fetch.
+    async 'loopx.publishPr'({
+      projectDir = null, goalId = null, token = null, title = '', body = '',
+    } = {}) {
+      if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
+      if (!token) throw new Error('loopx.publishPr: token is required');
+      const runGit = (args, timeoutMs = 60000) => app.shell.exec({
+        args: ['git', ...args], timeout: timeoutMs, cwd: projectDir,
+      });
+      let r = await runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
+      if (r.exit_code !== 0) throw new Error(`git rev-parse failed: ${r.stderr.trim().slice(0, 200)}`);
+      const branch = String(r.stdout || '').trim();
+      if (!branch || branch === 'HEAD') throw new Error('publishPr: the checkout is in detached HEAD state');
+      r = await runGit(['remote', 'get-url', 'origin']);
+      const repoMatch = String(r.stdout || '').match(/github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+      if (!repoMatch) throw new Error(`publishPr: cannot parse repository from origin "${String(r.stdout).trim()}"`);
+      const owner = repoMatch[1];
+      const repo = repoMatch[2].replace(/\.git$/i, '');
+      const user = await ghApi(token, '/user');
+      const login = String((user && user.login) || '').trim();
+      if (!login) throw new Error('publishPr: GitHub token did not resolve a login');
+
+      let fork = await ghApi(token, `/repos/${login}/${repo}`, 'GET', null, true);
+      if (!fork) {
+        await ghApi(token, `/repos/${owner}/${repo}/forks`, 'POST', {});
+        for (let i = 0; i < 30 && !fork; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 4000));
+          fork = await ghApi(token, `/repos/${login}/${repo}`, 'GET', null, true);
+        }
+        if (!fork) throw new Error('publishPr: the fork did not become ready within 2 minutes');
+      }
+
+      const pushUrl = `https://x-access-token:${token}@github.com/${login}/${repo}.git`;
+      r = await runGit(['push', pushUrl, `HEAD:refs/heads/${branch}`], 300000);
+      if (r.exit_code !== 0) {
+        throw new Error(String(r.stderr || '').split(token).join('***').trim().slice(0, 300) || 'git push failed');
+      }
+
+      const upstream = await ghApi(token, `/repos/${owner}/${repo}`);
+      const base = (upstream && upstream.default_branch) || 'main';
+      let pr;
+      try {
+        pr = await ghApi(token, `/repos/${owner}/${repo}/pulls`, 'POST', {
+          title, head: `${login}:${branch}`, base, body,
+        });
+      } catch (err) {
+        const existing = await ghApi(token, `/repos/${owner}/${repo}/pulls?state=open&head=${encodeURIComponent(`${login}:${branch}`)}`);
+        const found = Array.isArray(existing) && existing[0];
+        if (!found) throw err;
+        pr = found;
+      }
+      const prUrl = pr && pr.html_url ? pr.html_url : '';
+      if (!prUrl) throw new Error('publishPr: GitHub did not return a PR url');
+      return {
+        ok: true,
+        prUrl,
+        prNumber: pr.number ?? null,
+        branch,
+        forkUrl: (fork && fork.html_url) || `https://github.com/${login}/${repo}`,
+      };
     },
 
     async 'loopx.taskIntake'({
@@ -1243,6 +1339,23 @@ const I18N = {
     todoDoneHint: '这是知会/指示类事项：标记完成即可，不需要批准，也不会触发新操作。',
     approveDone: '已批准，任务将继续推进',
     todoDoneFeedback: '已标记完成',
+    githubTokenTitle: 'GitHub Token 设置',
+    githubTokenExplain: '用于 fork 仓库、推送分支、创建 PR。需要一个 fine-grained Personal Access Token（Repository 读写权限）。Token 仅保存在本机 BitFun 应用存储中，不会上传。',
+    githubTokenPlaceholder: 'ghp_ 或 github_pat_ …',
+    githubTokenSave: '保存并验证',
+    githubTokenStatus: '当前状态：',
+    githubTokenSaved: (user) => `Token 有效，已保存（登录名：${user}）`,
+    githubTokenInvalid: 'Token 无效或已过期',
+    githubTokenMissing: '未配置',
+    githubTokenSet: '已配置',
+    approveAndPr: '批准并提交 PR',
+    approvePrTitle: '批准并提交 PR？',
+    approvePrHint: '批准后控制台将自动：检查/创建你的 fork → 推送修复分支 → 向原仓库创建 PR（标题带 [bitfun-loopx] 标识，可被 GitHub 搜索统计）。',
+    approvePrNeedToken: '⚠ 尚未配置 GitHub Token，点击「批准」后将先打开 Token 设置。',
+    publishWorking: '正在发布 PR（首次需要 fork 仓库，可能一两分钟）…',
+    publishDone: (url) => `✅ PR 已提交：${url}`,
+    publishFailed: 'PR 提交失败',
+    publishNeedToken: '发布 PR 需要先配置 GitHub Token',
     approveFailed: (e) => `批准失败：${e}`,
     notifGateTitle: 'LoopX 需要你审批',
     notifGateBody: (id, n) => `${id} 有 ${n} 项等你处理`,
@@ -1403,6 +1516,23 @@ const I18N = {
     todoDoneHint: 'This is an informational/instructional item: marking it done is enough — no approval and no new action.',
     approveDone: 'Approved — the task will continue',
     todoDoneFeedback: 'Marked done',
+    githubTokenTitle: 'GitHub token settings',
+    githubTokenExplain: 'Used to fork the repository, push the branch, and create the PR. Provide a fine-grained Personal Access Token with Repository read/write. The token stays in this machine\'s BitFun app storage only.',
+    githubTokenPlaceholder: 'ghp_ or github_pat_ …',
+    githubTokenSave: 'Save & verify',
+    githubTokenStatus: 'Status: ',
+    githubTokenSaved: (user) => `Token valid and saved (login: ${user})`,
+    githubTokenInvalid: 'Token invalid or expired',
+    githubTokenMissing: 'Not configured',
+    githubTokenSet: 'Configured',
+    approveAndPr: 'Approve & submit PR',
+    approvePrTitle: 'Approve and submit the PR?',
+    approvePrHint: 'On approval the console will: check/create your fork → push the fix branch → create a PR against the upstream repository (the title carries the [bitfun-loopx] marker so the tool\'s PRs are searchable).',
+    approvePrNeedToken: '⚠ No GitHub token configured yet — approving will open the token settings first.',
+    publishWorking: 'Publishing the PR (first fork may take a minute or two)…',
+    publishDone: (url) => `✅ PR submitted: ${url}`,
+    publishFailed: 'PR submission failed',
+    publishNeedToken: 'A GitHub token is required to publish the PR',
     approveFailed: (e) => `Approval failed: ${e}`,
     notifGateTitle: 'LoopX needs your approval',
     notifGateBody: (id, n) => `${id} has ${n} item${n > 1 ? 's' : ''} waiting for you`,
@@ -1468,6 +1598,10 @@ const S = {
     projectDir: null, argvPrefix: null, srcDir: '', agentByGoal: {}, monitorByGoal: {},
     projectByGoal: {}, ownedGoals: {}, defaultAgentId: 'bitfun-agent', autoRunByGoal: {},
     defaultModel: 'auto', modelByGoal: {},
+    // GitHub fine-grained PAT (Repository read/write) for the publish flow
+    // (fork → push branch → create PR). Kept in the local app storage only.
+    githubToken: '',
+    githubLogin: '',
     // Explicit user stops: stoppedByGoal persists the parked state across
     // restarts; autoRunBeforeStop remembers the auto-run setting to restore.
     stoppedByGoal: {}, autoRunBeforeStop: {},
@@ -1918,6 +2052,39 @@ function syncGateState(g) {
 async function approveTodo(g, todo, note, button) {
   if (button) button.disabled = true;
   try {
+    // Publish gates publish by default: the console forks (when needed),
+    // pushes the branch and creates the PR first, then completes the todo so
+    // loopx reconciles the created PR instead of pushing on its own.
+    if (isPublishTodo(todo)) {
+      const token = String(S.config.githubToken || '').trim();
+      if (!token) {
+        log(`[${g.goalId}] ${t('publishNeedToken')}`, true);
+        recordGoalActivity(g, t('publishNeedToken'), true);
+        if (button) button.disabled = false;
+        openTokenDialog();
+        return false;
+      }
+      recordGoalActivity(g, t('publishWorking'));
+      try {
+        const published = await app.call('loopx.publishPr', {
+          projectDir: goalProjectDir(g.goalId),
+          goalId: g.goalId,
+          token,
+          title: prTitleFor(g),
+          body: prBodyFor(g),
+        });
+        if (!published.ok) throw new Error(published.error || 'publish failed');
+        recordGoalActivity(g, t('publishDone', published.prUrl), false, 'agent');
+        log(`[${g.goalId}] PR published: ${published.prUrl} (fork=${published.forkUrl})`);
+        note = [note || '', `PR 已由控制台创建：${published.prUrl}`].filter(Boolean).join(' · ');
+      } catch (err) {
+        const message = String(err && err.message || err);
+        log(`[${g.goalId}] publish failed: ${message}`, true);
+        recordGoalActivity(g, `${t('publishFailed')}: ${message}`, true);
+        if (button) button.disabled = false;
+        return false;
+      }
+    }
     const res = await app.call('loopx.completeTodo', {
       argvPrefix: S.config.argvPrefix,
       srcDir: S.config.srcDir || null,
@@ -2172,6 +2339,31 @@ function gateActionLabel(todo) {
   if (!kind) return null;
   for (const [re, label] of GATE_ACTION_LABELS) if (re.test(kind)) return label;
   return null;
+}
+
+// Publish-scope gates (external PR creation / review request) trigger the
+// console's own PR flow on approval — submitting the PR IS the default.
+const PUBLISH_TODO_RE = /publish|external_review|reviewer|pr_|pull_request/i;
+function isPublishTodo(todo) {
+  return PUBLISH_TODO_RE.test(String(todo?.action_kind || todo?.actionKind || todo?.task_class || todo?.taskClass || ''));
+}
+
+// PR identity markers — the countability contract: every PR created by this
+// tool carries both keywords in its title, searchable on GitHub with
+// `"bitfun-loopx" in:title`.
+const PR_TITLE_PREFIX = '[bitfun-loopx] ';
+const PR_BODY_MARKER = 'Created by BitFun LoopX Console (bitfun-loopx).';
+
+function prTitleFor(g) {
+  return `${PR_TITLE_PREFIX}${goalDisplayName(g)}`;
+}
+
+function prBodyFor(g) {
+  const issueMatch = String(g.objective || '').match(/github\.com\/[^/\s]+\/[^/\s]+\/(?:issues|pull)\/(\d+)/i);
+  const lines = [];
+  if (issueMatch) lines.push(`Fixes #${issueMatch[1]}`);
+  lines.push(PR_BODY_MARKER);
+  return lines.join('\n\n');
 }
 
 function activityText(line) {
@@ -2641,8 +2833,11 @@ function buildGatesSection(g) {
       const approveBtn = document.createElement('button');
       approveBtn.type = 'button';
       const todoIsGate = todo.task_class === 'user_gate';
-      approveBtn.className = `btn ${todoIsGate ? 'btn--approve' : ''}`;
-      approveBtn.textContent = todoIsGate ? t('approveGate') : t('completeTodoBtn');
+      const todoIsPublish = isPublishTodo(todo);
+      approveBtn.className = `btn ${todoIsGate || todoIsPublish ? 'btn--approve' : ''}`;
+      approveBtn.textContent = todoIsPublish
+        ? t('approveAndPr')
+        : (todoIsGate ? t('approveGate') : t('completeTodoBtn'));
       approveBtn.onclick = () => openApproveDialog(g, todo);
       item.append(text, approveBtn);
       gates.appendChild(item);
@@ -2713,18 +2908,26 @@ function streamFollowTail(stream) {
 
 // Gate approval confirmation: full todo text + optional note, one deliberate
 // click. The dialog is the only writer of todo complete from the UI.
+// Publish-scope gates default to the console's PR flow (fork → push → PR).
 function openApproveDialog(g, todo) {
   const dlg = document.getElementById('dlg-approve');
   const isGate = todo.task_class === 'user_gate';
+  const isPublish = isPublishTodo(todo);
+  const tokenOk = Boolean(String(S.config.githubToken || '').trim());
   const raw = todo.text || todo.title || todo.todo_id;
   const hint = gateActionLabel(todo);
   document.getElementById('approve-text').textContent = [
-    isGate ? t('approveGateHint') : t('todoDoneHint'),
+    isPublish ? t('approvePrHint') : (isGate ? t('approveGateHint') : t('todoDoneHint')),
+    isPublish && !tokenOk ? t('approvePrNeedToken') : '',
     hint ? t('gateItemWithType', hint) : t('gateItemTitle'),
     raw,
-  ].join('\n');
-  dlg.querySelector('h2').textContent = isGate ? t('approveGateTitle') : t('todoDoneTitle');
-  dlg.querySelector('button[value="approve"]').textContent = isGate ? t('approveConfirm') : t('todoDoneConfirm');
+  ].filter(Boolean).join('\n');
+  dlg.querySelector('h2').textContent = isPublish
+    ? t('approvePrTitle')
+    : (isGate ? t('approveGateTitle') : t('todoDoneTitle'));
+  dlg.querySelector('button[value="approve"]').textContent = isPublish
+    ? t('approveAndPr')
+    : (isGate ? t('approveConfirm') : t('todoDoneConfirm'));
   const noteInput = document.getElementById('approve-note');
   noteInput.value = '';
   dlg.returnValue = 'cancel';
@@ -2733,6 +2936,51 @@ function openApproveDialog(g, todo) {
     approveTodo(g, todo, noteInput.value.trim(), null);
   };
   dlg.showModal();
+}
+
+// ── GitHub token settings ──────────────────────────────────
+// The publish flow (fork → push → PR) authenticates with a fine-grained PAT.
+// Saved through the regular config storage; nothing leaves the machine.
+function openTokenDialog() {
+  const dlg = document.getElementById('dlg-token');
+  document.getElementById('token-input').value = S.config.githubToken || '';
+  document.getElementById('token-status').textContent = `${t('githubTokenStatus')}${
+    S.config.githubLogin || (S.config.githubToken ? t('githubTokenSet') : t('githubTokenMissing'))}`;
+  dlg.showModal();
+}
+
+async function saveGitHubToken() {
+  const input = document.getElementById('token-input');
+  const status = document.getElementById('token-status');
+  const btn = document.getElementById('btn-token-save');
+  const token = String(input.value || '').trim();
+  if (!token) {
+    status.textContent = `${t('githubTokenStatus')}${t('githubTokenMissing')}`;
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const res = await app.call('loopx.githubUser', { token });
+    if (!res.ok || !res.login) throw new Error(res.error || t('githubTokenInvalid'));
+    S.config.githubToken = token;
+    S.config.githubLogin = res.login;
+    await saveConfig();
+    status.textContent = t('githubTokenSaved', res.login);
+    log(`GitHub token saved (login=${res.login})`);
+    document.getElementById('dlg-token').close();
+  } catch (err) {
+    status.textContent = `${t('githubTokenInvalid')}：${String(err && err.message || err)}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function clearGitHubToken() {
+  S.config.githubToken = '';
+  S.config.githubLogin = '';
+  await saveConfig();
+  document.getElementById('token-input').value = '';
+  document.getElementById('token-status').textContent = `${t('githubTokenStatus')}${t('githubTokenMissing')}`;
 }
 
 // Stopping is a deliberate, whole-task action: explain what it does before
@@ -3490,6 +3738,9 @@ async function refreshGoals() {
 // (Settings was removed: model selection lives in the composer, loopx is
 // auto-detected, and the local-checkout override is not needed yet.)
 document.getElementById('btn-refresh').addEventListener('click', refreshGoals);
+document.getElementById('btn-github-token').addEventListener('click', openTokenDialog);
+document.getElementById('btn-token-save').addEventListener('click', saveGitHubToken);
+document.getElementById('btn-token-clear').addEventListener('click', clearGitHubToken);
 document.getElementById('btn-retry-detect').addEventListener('click', async () => {
   if (await detect()) refreshGoals();
 });
