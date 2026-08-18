@@ -2675,11 +2675,12 @@ function streamScroller(stream) {
 }
 
 let lastScrollTraceAt = 0;
-// Keep the tail pinned: every new line or growing block pulls the log to the
-// bottom (explicit product choice — the log always shows the latest). The
-// overflow can live on the body OR the stream itself depending on layout, so
-// scroll whichever one actually overflows. The throttled trace lands in
-// debug-ui.log so a silent failure can be diagnosed from real values.
+// Chat-style follow: the log pins to the latest line only while the user is
+// already near the bottom. A reader scrolled up into history stays put — new
+// content must not yank the scrollbar down (that made it bounce up/down).
+// The overflow can live on the body OR the stream itself, so whichever one
+// actually overflows is the target. The throttled trace lands in debug-ui.log
+// so a silent failure can be diagnosed from real values.
 function streamFollowTail(stream) {
   const sc = streamScroller(stream);
   const target = stream.scrollHeight > stream.clientHeight + 2 ? stream : sc;
@@ -2691,7 +2692,9 @@ function streamFollowTail(stream) {
       + `stream sh=${stream.scrollHeight} ch=${stream.clientHeight} top=${stream.scrollTop} `
       + `target=${target === stream ? 'stream' : 'body'}`);
   }
-  target.scrollTop = target.scrollHeight;
+  if (target.scrollHeight - target.scrollTop - target.clientHeight < 48) {
+    target.scrollTop = target.scrollHeight;
+  }
 }
 
 // Gate approval confirmation: full todo text + optional note, one deliberate
