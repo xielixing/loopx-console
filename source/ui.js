@@ -499,6 +499,11 @@ const S = {
     // Explicit user stops: stoppedByGoal persists the parked state across
     // restarts; autoRunBeforeStop remembers the auto-run setting to restore.
     stoppedByGoal: {}, autoRunBeforeStop: {},
+    // Host agent session per goal. Persisted (not just in-memory) so a turn
+    // after an app restart reuses the SAME hidden session: the host restores
+    // it from disk and the agent continues with its full prior context
+    // instead of starting from scratch.
+    agentSessionByGoal: {},
   },
   detect: null,
   goals: new Map(), // goalId -> G
@@ -2400,13 +2405,14 @@ async function resetLoopxState() {
     });
     if (!res.ok) throw new Error(res.error || 'reset failed');
     // Clear every per-goal UI binding and the persisted logs.
-    for (const key of ['ownedGoals', 'monitorByGoal', 'agentByGoal', 'autoRunByGoal', 'modelByGoal', 'projectByGoal', 'stoppedByGoal', 'autoRunBeforeStop']) {
+    for (const key of ['ownedGoals', 'monitorByGoal', 'agentByGoal', 'autoRunByGoal', 'modelByGoal', 'projectByGoal', 'stoppedByGoal', 'autoRunBeforeStop', 'agentSessionByGoal']) {
       S.config[key] = {};
     }
     S.persistedLogs = {};
     await saveConfig();
     try { await app.storage.set('logs', {}); } catch (_) {}
     S.goals.clear();
+    S.agentSessionByGoal.clear();
     S.activeGoalId = null;
     document.getElementById('goal-detail-panel').hidden = true;
     document.getElementById('detail-empty').hidden = false;
@@ -2469,6 +2475,7 @@ async function deleteGoalTask(g) {
       S.config.ownedGoals, S.config.monitorByGoal, S.config.agentByGoal,
       S.config.autoRunByGoal, S.config.modelByGoal, S.config.projectByGoal,
       S.config.stoppedByGoal, S.config.autoRunBeforeStop,
+      S.config.agentSessionByGoal,
     ]) {
       if (map) delete map[g.goalId];
     }
@@ -2743,6 +2750,31 @@ function startCountdownLoop() {
 // follow-up turns keep context.
 const agentRuns = new Map(); // goalId -> { sessionId, turnId, startedAt, tick }
 
+// Host agent session ids survive restarts (config.agentSessionByGoal) so the
+// next turn reuses the same hidden session and keeps the full prior context.
+function agentSessionIdFor(goalId) {
+  return S.agentSessionByGoal.get(goalId)
+    || (S.config.agentSessionByGoal && S.config.agentSessionByGoal[goalId])
+    || undefined;
+}
+
+function rememberAgentSession(goalId, sessionId) {
+  S.agentSessionByGoal.set(goalId, sessionId);
+  S.config.agentSessionByGoal = S.config.agentSessionByGoal || {};
+  if (S.config.agentSessionByGoal[goalId] !== sessionId) {
+    S.config.agentSessionByGoal[goalId] = sessionId;
+    saveConfig();
+  }
+}
+
+function forgetAgentSession(goalId) {
+  S.agentSessionByGoal.delete(goalId);
+  if (S.config.agentSessionByGoal && S.config.agentSessionByGoal[goalId]) {
+    delete S.config.agentSessionByGoal[goalId];
+    saveConfig();
+  }
+}
+
 async function executeRunOnce(g) {
   // Auto-run and the manual confirm dialog can race; whoever arrives second
   // must not reset the live run's state or activity stream.
@@ -2775,6 +2807,7 @@ async function executeRunOnce(g) {
   }, 10000);
   renderGoal(g);
   log(`[${g.goalId}] turn started (agent=${g.agentId})`);
+  let requestedSessionId = null;
   try {
     const composed = await app.call('loopx.turnPrompt', {
       argvPrefix: S.config.argvPrefix,
@@ -2787,20 +2820,27 @@ async function executeRunOnce(g) {
     dbgUi('turn:promptReady', `chars=${composed.prompt.length}`);
     // The log shows what was sent to the agent — collapsed, expandable.
     recordGoalActivity(g, t('activitySentPrompt', composed.prompt.length), false, 'prompt', composed.prompt);
+    // Reuse the goal's host session (persisted across restarts) so the agent
+    // continues with its full prior context instead of starting from scratch.
+    requestedSessionId = agentSessionIdFor(g.goalId);
     const run = await app.agent.run(composed.prompt, {
       sessionName: `LoopX · ${g.goalId}`,
-      sessionId: S.agentSessionByGoal.get(g.goalId) || undefined,
+      sessionId: requestedSessionId || undefined,
       enableTools: true,
       model: modelForGoal(g.goalId),
     });
-    dbgUi('turn:agentStarted', `session=${run.sessionId} turn=${run.turnId}`);
-    S.agentSessionByGoal.set(g.goalId, run.sessionId);
+    dbgUi('turn:agentStarted', `session=${run.sessionId} turn=${run.turnId} reused=${run.sessionId === requestedSessionId}`);
+    rememberAgentSession(g.goalId, run.sessionId);
     agentRuns.set(g.goalId, { sessionId: run.sessionId, turnId: run.turnId, startedAt, tick });
   } catch (err) {
     const message = String(err?.message || err);
-    // A dead session id (host restarted) is retried once on a fresh session.
-    if (S.agentSessionByGoal.has(g.goalId) && /session/i.test(message)) {
-      S.agentSessionByGoal.delete(g.goalId);
+    // A dead session id (host restarted or session data pruned) is retried
+    // once on a fresh session — cleared EVERYWHERE so the retry cannot reuse
+    // it. The retry path also stops this attempt's liveness tick, otherwise
+    // the interval would leak and double with the retry's own tick.
+    if (requestedSessionId && /session/i.test(message)) {
+      clearInterval(tick);
+      forgetAgentSession(g.goalId);
       g.running = false;
       return executeRunOnce(g);
     }
