@@ -2259,11 +2259,12 @@ function recordGoalActivity(g, line, isErr = false, kind = null, raw = null) {
 
   const stream = document.querySelector(`.activity-stream[data-goal="${CSS.escape(g.goalId)}"]`);
   if (stream) {
+    const follow = streamAtTail(stream);
     const emptyEl = stream.querySelector('.activity-empty');
     if (emptyEl) emptyEl.remove();
     stream.appendChild(activityLineElement(entry));
     while (stream.children.length > 240) stream.removeChild(stream.firstChild);
-    streamFollowTail(stream);
+    if (follow) streamFollowTail(stream);
   } else {
     const panel = document.getElementById('goal-detail-panel');
     if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
@@ -2287,16 +2288,14 @@ function setGoalActivityTick(g, text) {
     last.line = summary;
     last.time = now;
     if (stream && stream.lastElementChild) {
+      const follow = streamAtTail(stream);
       const textEl = stream.lastElementChild.querySelector('.activity-stream__text');
       if (textEl) textEl.textContent = summary;
       const timeEl = stream.lastElementChild.querySelector('.activity-stream__time');
       if (timeEl) timeEl.textContent = now;
       // A tick is an in-place time refresh, not new content: follow only when
-      // already near the bottom so reading history is not yanked every 10s.
-      const sc = streamScroller(stream);
-      if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 48) {
-        sc.scrollTop = sc.scrollHeight;
-      }
+      // the user was already at the bottom.
+      if (follow) streamFollowTail(stream);
     }
     return;
   }
@@ -2304,10 +2303,11 @@ function setGoalActivityTick(g, text) {
   g.activityLines.push(entry);
   if (g.activityLines.length > 240) g.activityLines.splice(0, g.activityLines.length - 240);
   if (stream) {
+    const follow = streamAtTail(stream);
     const emptyEl = stream.querySelector('.activity-empty');
     if (emptyEl) emptyEl.remove();
     stream.appendChild(activityLineElement(entry));
-    streamFollowTail(stream);
+    if (follow) streamFollowTail(stream);
   } else {
     const panel = document.getElementById('goal-detail-panel');
     if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
@@ -2595,12 +2595,14 @@ function renderGoalDetails(g) {
   } else if (oldGates) {
     oldGates.remove();
   }
+  const follow = streamAtTail(stream);
   while (stream.children.length < g.activityLines.length) {
     const row = activityLineElement(g.activityLines[stream.children.length]);
     stream.appendChild(row);
     const pre = row.querySelector('.activity-prompt--think pre');
     if (pre) pre.scrollTop = pre.scrollHeight;
   }
+  if (follow) streamFollowTail(stream);
 }
 
 // The "needs you" block, rebuilt cheaply in place on each panel render.
@@ -2674,16 +2676,30 @@ function streamScroller(stream) {
   return stream.closest('.detail-panel__body') || stream;
 }
 
+// The overflow can live on the body OR the stream itself; whichever one
+// actually overflows is the element the user scrolls.
+function streamTailTarget(stream) {
+  const sc = streamScroller(stream);
+  return stream.scrollHeight > stream.clientHeight + 2 ? stream : sc;
+}
+
+// "Pinned to the tail" must be measured BEFORE the content mutates: after an
+// append the new row's own height would otherwise masquerade as distance
+// from the bottom and break the decision. The 8px window makes "at the
+// bottom" exact — any real scroll-up disables the follow.
+function streamAtTail(stream) {
+  const target = streamTailTarget(stream);
+  return target.scrollHeight - target.scrollTop - target.clientHeight < 8;
+}
+
 let lastScrollTraceAt = 0;
-// Chat-style follow: the log pins to the latest line only while the user is
-// already near the bottom. A reader scrolled up into history stays put — new
-// content must not yank the scrollbar down (that made it bounce up/down).
-// The overflow can live on the body OR the stream itself, so whichever one
-// actually overflows is the target. The throttled trace lands in debug-ui.log
-// so a silent failure can be diagnosed from real values.
+// Chat-style follow: the log pins to the latest line ONLY when the user was
+// at the bottom before the new content arrived. A reader scrolled up into
+// history stays put — no yanking, no up/down bouncing. The throttled trace
+// lands in debug-ui.log so a silent failure can be diagnosed from real values.
 function streamFollowTail(stream) {
   const sc = streamScroller(stream);
-  const target = stream.scrollHeight > stream.clientHeight + 2 ? stream : sc;
+  const target = streamTailTarget(stream);
   const now = Date.now();
   if (now - lastScrollTraceAt > 5000) {
     lastScrollTraceAt = now;
@@ -2692,9 +2708,7 @@ function streamFollowTail(stream) {
       + `stream sh=${stream.scrollHeight} ch=${stream.clientHeight} top=${stream.scrollTop} `
       + `target=${target === stream ? 'stream' : 'body'}`);
   }
-  if (target.scrollHeight - target.scrollTop - target.clientHeight < 48) {
-    target.scrollTop = target.scrollHeight;
-  }
+  target.scrollTop = target.scrollHeight;
 }
 
 // Gate approval confirmation: full todo text + optional note, one deliberate
@@ -3225,19 +3239,21 @@ function upsertGoalStream(g, kind, text) {
     entry.line = summary;
     entry.time = now;
     if (stream && stream.children[lastIndex]) {
+      const follow = streamAtTail(stream);
       patchRow(stream.children[lastIndex]);
-      streamFollowTail(stream);
+      if (follow) streamFollowTail(stream);
     }
   } else {
     const entry = { time: now, line: summary, isErr: false, count: 1, kind, stream: true };
     g.activityLines.push(entry);
     if (g.activityLines.length > 240) g.activityLines.splice(0, g.activityLines.length - 240);
     if (stream) {
+      const follow = streamAtTail(stream);
       const emptyEl = stream.querySelector('.activity-empty');
       if (emptyEl) emptyEl.remove();
       stream.appendChild(activityLineElement(entry));
       while (stream.children.length > 240) stream.removeChild(stream.firstChild);
-      streamFollowTail(stream);
+      if (follow) streamFollowTail(stream);
     } else {
       const panel = document.getElementById('goal-detail-panel');
       if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
