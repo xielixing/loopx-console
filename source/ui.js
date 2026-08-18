@@ -1188,7 +1188,12 @@ function setGoalActivityTick(g, text) {
       if (textEl) textEl.textContent = summary;
       const timeEl = stream.lastElementChild.querySelector('.activity-stream__time');
       if (timeEl) timeEl.textContent = now;
-      streamFollowTail(stream);
+      // A tick is an in-place time refresh, not new content: follow only when
+      // already near the bottom so reading history is not yanked every 10s.
+      const sc = streamScroller(stream);
+      if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 48) {
+        sc.scrollTop = sc.scrollHeight;
+      }
     }
     return;
   }
@@ -1468,8 +1473,14 @@ function renderGoalDetails(g) {
     }
     if (gatesSection) body.appendChild(gatesSection);
     body.appendChild(stream);
-    // Land on the latest: a freshly opened panel starts at the bottom.
-    requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
+    // Land on the latest: a freshly opened panel starts at the bottom, and
+    // expanded reasoning blocks start at their own latest content.
+    requestAnimationFrame(() => {
+      for (const pre of stream.querySelectorAll('.activity-prompt--think pre')) {
+        pre.scrollTop = pre.scrollHeight;
+      }
+      body.scrollTop = body.scrollHeight;
+    });
     return;
   }
 
@@ -1482,7 +1493,10 @@ function renderGoalDetails(g) {
     oldGates.remove();
   }
   while (stream.children.length < g.activityLines.length) {
-    stream.appendChild(activityLineElement(g.activityLines[stream.children.length]));
+    const row = activityLineElement(g.activityLines[stream.children.length]);
+    stream.appendChild(row);
+    const pre = row.querySelector('.activity-prompt--think pre');
+    if (pre) pre.scrollTop = pre.scrollHeight;
   }
 }
 
@@ -1557,13 +1571,19 @@ function streamScroller(stream) {
   return stream.closest('.detail-panel__body') || stream;
 }
 
-// Keep the tail pinned while new lines arrive — the chat-style follow the
-// user expects, without yanking the scroll when they are reading history.
+let lastScrollTraceAt = 0;
+// Keep the tail pinned: every new line or growing block pulls the log to the
+// bottom (explicit product choice — the log always shows the latest). The
+// throttled trace lands in debug-ui.log so a silent scroll failure can be
+// diagnosed from real values.
 function streamFollowTail(stream) {
   const sc = streamScroller(stream);
-  if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 48) {
-    sc.scrollTop = sc.scrollHeight;
+  const now = Date.now();
+  if (now - lastScrollTraceAt > 5000) {
+    lastScrollTraceAt = now;
+    dbgUi('scrollTail', `el=${sc.className} sh=${sc.scrollHeight} ch=${sc.clientHeight} top=${sc.scrollTop}`);
   }
+  sc.scrollTop = sc.scrollHeight;
 }
 
 // Gate approval confirmation: full todo text + optional note, one deliberate
