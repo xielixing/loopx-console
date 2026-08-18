@@ -2514,9 +2514,11 @@ function isGated(g) {
 
 // The board mirrors an issue tracker, but attention comes first: ONLY the two
 // things that deserve a column exist — work that needs the human (blocking)
-// and work that is running. Queued goals are intentionally invisible (they
-// surface the moment they run or need approval); terminal/stopped/error and
-// other-host goals collapse into the quiet "more" chips footer.
+// and work that is running. Queued auto-run goals between turns are
+// intentionally invisible (they surface the moment they run or need
+// approval); paused/stopped/error goals stay visible as dimmed rail cards
+// (so a restart can never make a task disappear), and terminal/other-host
+// goals collapse into the quiet "more" chips footer.
 const PRIMARY_GROUPS = ['review', 'active'];
 const ARCHIVE_GROUPS = ['done'];
 const GROUP_I18N_KEY = {
@@ -2542,6 +2544,13 @@ function goalGroup(g) {
   // "needs you" the moment it opens, not hide behind "in progress".
   if (isGated(g)) return 'review';
   if (g.running) return 'active';
+  // Auto-run off without a running turn is a VISIBLE paused state — the boot
+  // sequence pauses every previous task (自动已关) so nothing auto-runs after
+  // a restart, and an auto-run disabled by repeated failures parks here too.
+  // These must never fall into 'backlog', which has no visible slot: a task
+  // that was running before a restart would silently vanish from the board
+  // instead of showing its card with 继续.
+  if (!g.autoRun) return 'paused';
   return 'backlog';
 }
 
