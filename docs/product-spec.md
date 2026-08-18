@@ -143,6 +143,22 @@ publish 类门禁（`external_pr_creation` / `external_review_request` 等）是
 4. 创建成功后完成发布 todo 并把 PR 链接写入 todo note，loopx 据此对账，
    Agent 不再自行 push/建 PR；失败则门禁保持打开、日志写明原因。
 
+### 3.3.1 全平台可统计标志（commit 层）
+
+- 控制台管理的克隆仓库**安装 `commit-msg` 钩子**（`ensureCommitTrailerHook`，
+  只作用于 `~/.bitfun/loopx-console/repos/` 下的缓存克隆，绝不写入用户自选
+  仓库）：每次 `git commit` 自动在提交信息末尾补上
+  `Co-authored-by: bitfun-loopx <bitfun-loopx@users.noreply.github.com>`。
+- 每轮 turnPrompt 重装一次钩子（幂等），且任务前言明确要求 Agent 保留该行。
+  市场版无法写 `~` 下的钩子文件，降级为提示词强制。
+- 统计口径（已用 GitHub 搜索 API 实测确认语法有效）：
+  - 提出/打开/合并的 PR 数：`"bitfun-loopx" in:title is:pr [is:merged]`
+  - 提交次数：commit 搜索 `"Co-authored-by: bitfun-loopx"`（仅覆盖进入
+    各仓库默认分支的提交；squash 合并时 PR 标题前缀会进入默认分支，仍可
+    用 `"[bitfun-loopx]"` 的 commit 搜索兜底）
+  - 代码行数：搜索 API 不提供行数，需按 PR 列表逐个取 `additions/deletions`
+    （脚本可从标题搜索枚举 PR 后聚合）。
+
 ## 4. 双层强制
 
 - **客户端**（ui.js）：`taskInputKind` / `firstUnsupportedGithubUrl` 即时反馈，

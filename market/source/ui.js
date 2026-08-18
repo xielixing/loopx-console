@@ -141,6 +141,7 @@
       '规则：只在仓库目录内工作；不要强杀不是你启动的进程；',
       '在结束本轮前，通过 loopx（todo complete / 证据记录）记录进度。',
       '如果 loopx 命令失败，先读错误信息再修正调用方式 —— 同一命令不要盲目重试超过两次。',
+      '提交规范：每次 git commit 的提交信息末尾必须保留一行 "Co-authored-by: bitfun-loopx <bitfun-loopx@users.noreply.github.com>"（本市场版无法写入仓库的 git 钩子，请手动在提交信息中带上这一行）。',
       '工作语言：所有面向用户的说明、总结与回复请使用中文。',
       '',
     ].join('\n');

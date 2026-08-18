@@ -240,6 +240,43 @@ function cloneTargetDir(repo) {
   return path.join(cloneCacheRoot(), safe);
 }
 
+// ── commit marker ──────────────────────────────────────────
+// Every commit the agent makes inside a console-managed clone carries the
+// bitfun-loopx co-author trailer, so the tool's commits are countable on
+// GitHub with the commit-search query "Co-authored-by: bitfun-loopx".
+// Two layers: a commit-msg hook (hard guarantee, installed in the clone)
+// plus a prompt instruction (the agent must not remove the trailer).
+const COMMIT_TRAILER_KEY = 'Co-authored-by: bitfun-loopx';
+const COMMIT_TRAILER = `${COMMIT_TRAILER_KEY} <bitfun-loopx@users.noreply.github.com>`;
+const COMMIT_MSG_HOOK = `#!/bin/sh
+# LoopX Console marker: append the bitfun-loopx co-author trailer when absent.
+TRAILER='${COMMIT_TRAILER}'
+if ! grep -qF '${COMMIT_TRAILER_KEY}' "$1"; then
+  printf '\\n%s\\n' "$TRAILER" >> "$1"
+fi
+`;
+
+function ensureCommitTrailerHook(projectDir) {
+  // Only console-managed clones get a hook installed — never a repo the user
+  // selected on their own machine.
+  if (!projectDir || !String(projectDir).startsWith(cloneCacheRoot())) return false;
+  try {
+    const hooksDir = path.join(projectDir, '.git', 'hooks');
+    const hookPath = path.join(hooksDir, 'commit-msg');
+    if (fs.existsSync(hookPath)) {
+      const current = fs.readFileSync(hookPath, 'utf8');
+      if (current.includes(COMMIT_TRAILER_KEY)) return true;
+    }
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(hookPath, COMMIT_MSG_HOOK, { encoding: 'utf8', mode: 0o755 });
+    dbgWorker('commitHook:installed', projectDir);
+    return true;
+  } catch (err) {
+    dbgWorker('commitHook:error', `${err.message}`);
+    return false;
+  }
+}
+
 function repoExistsOnGithub(repo) {
   return new Promise((resolve, reject) => {
     const req = https.get(`https://api.github.com/repos/${repo}`, {
@@ -420,6 +457,7 @@ function turnPreamble({ projectDir, goalId, agentId }) {
     '规则：只在仓库目录内工作；不要强杀不是你启动的进程；',
     '在结束本轮前，通过 loopx（todo complete / 证据记录）记录进度。',
     '如果 loopx 命令失败，先读错误信息再修正调用方式 —— 同一命令不要盲目重试超过两次。',
+    `提交规范：每次 git commit 的提交信息末尾必须保留一行 "${COMMIT_TRAILER}"（仓库已安装 commit-msg 钩子会自动补上；不要删除这一行）。`,
     '工作语言：所有面向用户的说明、总结与回复请使用中文。',
     '',
   ].join('\n');
@@ -1511,6 +1549,7 @@ module.exports = {
           dbgWorker('taskIntake:clone:start', requestedRepos[0]);
           workingDir = await cloneRepository(requestedRepos[0], (extra) => emit('clone', extra));
           dbgWorker('taskIntake:clone:done', workingDir);
+          ensureCommitTrailerHook(workingDir);
         }
         // issues-list / repository URL reaching intake without a UI-confirmed
         // selection (standalone callers): expand it here.
@@ -1854,6 +1893,9 @@ module.exports = {
     if (!goalId || !agentId) throw new Error('loopx.turnPrompt: goalId and agentId are required');
     if (!projectDir) throw new Error('loopx.turnPrompt: projectDir is required');
     dbgWorker('turnPrompt:start', `goalId=${goalId}`);
+    // Re-assert the commit marker hook before every turn (cheap + idempotent):
+    // the clone may have been re-fetched or its hooks wiped between turns.
+    ensureCommitTrailerHook(projectDir);
     const { result, payload } = await runJson(argvPrefix, projectDir, [
       'heartbeat-prompt', '--goal-id', goalId, '--agent-id', agentId,
       '--runtime-profile', 'outer_controller', '--compact',
