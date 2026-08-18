@@ -305,11 +305,16 @@ button, input, select { font: inherit; }
 .gate-card { display: flex; flex-direction: column; gap: 5px; padding: 7px 9px; border: 1px solid var(--lx-border); border-radius: var(--lx-radius); background: var(--lx-surface); }
 .gate-card--block { border-color: color-mix(in srgb, var(--lx-review) 55%, var(--lx-border)); background: color-mix(in srgb, var(--lx-review) 4%, var(--lx-surface)); }
 .gate-card--info { background: var(--lx-bg); }
-.gate-card__title { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--lx-text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.gate-card--block .gate-card__title { font-weight: 600; }
-.gate-card--block .gate-card__title::before { content: '⛔ '; color: var(--lx-review); }
-.gate-card--info .gate-card__title::before { content: 'ℹ '; color: var(--lx-text-mute); }
+.gate-card__kicker { color: var(--lx-text-mute); font: 10px/1.4 var(--lx-mono); }
+.gate-card__title { display: flex; align-items: center; gap: 8px; color: var(--lx-text); font-size: 12px; line-height: 1.5; }
+.gate-card__label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.gate-card__title .btn { flex: 0 0 auto; white-space: nowrap; }
+.gate-card--block .gate-card__label { font-weight: 600; }
+.gate-card--block .gate-card__label::before { content: '⛔ '; color: var(--lx-review); }
+.gate-card--info .gate-card__label::before { content: 'ℹ '; color: var(--lx-text-mute); }
 .gate-card__raw { color: var(--lx-text-mute); font: 10.5px/1.45 var(--lx-mono); white-space: pre-wrap; word-break: break-all; }
+.goal__conclusion { margin-top: 2px; color: var(--lx-ok); font-size: 12px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.detail-panel__conclusion { margin-top: 6px; color: var(--lx-ok); font: 600 12.5px/1.4 var(--lx-sans); overflow-wrap: anywhere; }
 .approve-text {
   margin: 0; padding: 9px 10px; border: 1px solid var(--lx-border); border-left: 3px solid var(--lx-review);
   border-radius: var(--lx-radius); background: var(--lx-bg); color: var(--lx-text); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere;

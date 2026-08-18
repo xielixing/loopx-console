@@ -1332,6 +1332,14 @@ const I18N = {
     gateTypePublish: '发布 / 提交 PR',
     gateTypeApprove: '审批',
     gateTypeInfo: '知会事项',
+    gateCardTask: (name) => `任务：${name}`,
+    gateItemInfoLabel: (hint) => `知会事项 · ${hint}`,
+    conclusionMerged: '结论：已修复并合并',
+    conclusionCompleted: '结论：修复已完成',
+    conclusionNoFollowup: '结论：无需修复（无后续动作）',
+    conclusionCancelled: '结论：已取消',
+    conclusionClosed: '结论：已关闭 / 重复',
+    conclusionFinished: '结论：任务已结束',
     approveGate: '批准',
     completeTodoBtn: '标记完成',
     approveGateTitle: '批准这项操作？',
@@ -1516,6 +1524,14 @@ const I18N = {
     gateTypePublish: 'Publish / submit PR',
     gateTypeApprove: 'Approval',
     gateTypeInfo: 'Informational',
+    gateCardTask: (name) => `Task: ${name}`,
+    gateItemInfoLabel: (hint) => `Informational · ${hint}`,
+    conclusionMerged: 'Conclusion: fixed and merged',
+    conclusionCompleted: 'Conclusion: fix completed',
+    conclusionNoFollowup: 'Conclusion: no fix needed (no follow-up action)',
+    conclusionCancelled: 'Conclusion: cancelled',
+    conclusionClosed: 'Conclusion: closed / duplicate',
+    conclusionFinished: 'Conclusion: task finished',
     approveGate: 'Approve',
     completeTodoBtn: 'Mark done',
     approveGateTitle: 'Approve this action?',
@@ -2329,6 +2345,18 @@ function goalNarration(g) {
   return g.objective || g.lastError || g.last?.state || g.state || g.goalId || '';
 }
 
+// The one-line answer to "was it fixed, and why not?" for finished tasks —
+// loopx terminal states mapped to plain Chinese.
+function goalConclusion(g) {
+  const state = String(g.last?.state || g.state || '').toLowerCase();
+  if (/(^|_)merged(_|$)/.test(state)) return t('conclusionMerged');
+  if (/(^|_)(cancelled|canceled)(_|$)/.test(state)) return t('conclusionCancelled');
+  if (/(^|_)(closed|duplicate)(_|$)/.test(state)) return t('conclusionClosed');
+  if (state.includes('no_followup')) return t('conclusionNoFollowup');
+  if (/(^|_)(terminal|completed|complete|done)(_|$)/.test(state)) return t('conclusionCompleted');
+  return t('conclusionFinished');
+}
+
 // Friendly display name: "<repo>#<n>" from the intake link, the bare repo
 // slug, or the clone-cache folder name. The raw goalId (loopx's identity)
 // always stays reachable as a tooltip, so nothing becomes unfindable.
@@ -2401,24 +2429,32 @@ function gateTodoInfo(todo) {
   const isPublish = isPublishTodo(todo);
   const isBlocking = todo.task_class === 'user_gate' || isPublish;
   const raw = todo.title || todo.text || todo.todo_id || '';
-  let typeLabel = gateActionLabel(todo);
-  if (!typeLabel) typeLabel = isPublish ? t('gateTypePublish') : (isBlocking ? t('gateTypeApprove') : t('gateTypeInfo'));
-  // Informational items are the user's own instructions (already Chinese):
-  // the text IS the title. Blocking gates lead with the Chinese type label;
-  // loopx's raw wording stays as a dim secondary line.
-  const title = isBlocking ? t('gateItemWithType', typeLabel) : raw;
+  const mapped = gateActionLabel(todo);
+  const typeLabel = mapped || (isPublish ? t('gateTypePublish') : (isBlocking ? t('gateTypeApprove') : t('gateTypeInfo')));
+  // Chinese-first everywhere: the card title is always a Chinese label;
+  // loopx's raw wording (or the user's own instruction text) stays as a dim
+  // secondary line, so no todo ever surfaces as bare English.
+  const title = isBlocking
+    ? t('gateItemWithType', typeLabel)
+    : (mapped ? t('gateItemInfoLabel', typeLabel) : t('gateTypeInfo'));
   return { isBlocking, isPublish, typeLabel, title, raw };
 }
 
-// One gate item as a card: Chinese title + (blocking) dim raw text + the
+// One gate item as a card: task kicker + Chinese title + dim raw text + the
 // action button. Shared by the review column and the detail panel.
 function buildGateItemCard(g, todo) {
   const info = gateTodoInfo(todo);
   const card = document.createElement('div');
   card.className = `gate-card ${info.isBlocking ? 'gate-card--block' : 'gate-card--info'}`;
+  const kicker = document.createElement('div');
+  kicker.className = 'gate-card__kicker';
+  kicker.textContent = t('gateCardTask', goalDisplayName(g));
+  card.appendChild(kicker);
   const title = document.createElement('div');
   title.className = 'gate-card__title';
-  title.textContent = info.title;
+  const label = document.createElement('span');
+  label.className = 'gate-card__label';
+  label.textContent = info.title;
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = `btn btn--tiny ${info.isBlocking ? 'btn--approve' : ''}`;
@@ -2426,9 +2462,9 @@ function buildGateItemCard(g, todo) {
     ? t('approveAndPr')
     : (info.isBlocking ? t('approveGate') : t('completeTodoBtn'));
   btn.onclick = () => openApproveDialog(g, todo);
-  title.append(btn);
+  title.append(label, btn);
   card.appendChild(title);
-  if (info.isBlocking && info.raw && info.raw !== info.title) {
+  if (info.raw && info.raw !== info.title) {
     const rawEl = document.createElement('div');
     rawEl.className = 'gate-card__raw';
     rawEl.textContent = info.raw;
@@ -2788,6 +2824,14 @@ function buildGoalCard(g, compact = false) {
     el.appendChild(buildGateItemsList(g));
   }
 
+  // Finished tasks answer the obvious question on the card itself.
+  if (group === 'done') {
+    const conclusion = document.createElement('div');
+    conclusion.className = 'goal__conclusion';
+    conclusion.textContent = goalConclusion(g);
+    el.appendChild(conclusion);
+  }
+
   if (g.running || g.currentActivity) {
     const activity = document.createElement('div');
     activity.className = 'goal__activity' + (g.running ? ' goal__activity--live' : '');
@@ -2827,6 +2871,11 @@ function renderGoalDetails(g) {
   const detailTitle = document.getElementById('goal-detail-title');
   detailTitle.textContent = goalDisplayName(g);
   detailTitle.title = g.goalId;
+  const conclusionEl = document.getElementById('goal-detail-conclusion');
+  if (conclusionEl) {
+    conclusionEl.textContent = isTerminal(g) ? goalConclusion(g) : '';
+    conclusionEl.hidden = !isTerminal(g);
+  }
   const body = document.getElementById('goal-detail-body');
 
   // The stream is appended to incrementally while visible (recordGoalActivity
