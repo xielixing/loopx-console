@@ -42,16 +42,18 @@ button, input, select { font: inherit; }
   outline: 2px solid var(--lx-accent); outline-offset: 1px;
 }
 .topbar__spacer { flex: 1; }
-.runtime-status { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.presence { display: inline-flex; align-items: center; gap: 6px; color: var(--lx-text-mute); font-size: 11px; white-space: nowrap; }
-.presence__dot, .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lx-text-mute); flex: 0 0 auto; }
-.presence--live { color: var(--lx-ok); }
-.presence--live .presence__dot { background: var(--lx-ok); }
-.presence--paused { color: var(--lx-warn); }
-.presence--paused .presence__dot { background: var(--lx-warn); }
-.presence--nocli { color: var(--lx-error); }
-.presence--nocli .presence__dot { background: var(--lx-error); }
-.hb-next { font: 11px/1.2 var(--lx-mono); color: var(--lx-text-mute); white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lx-text-mute); flex: 0 0 auto; }
+/* Per-card status chips answer "is this task running normally?" at a glance —
+   the global header heartbeat readout is gone. */
+.goal-status {
+  flex: 0 0 auto; display: inline-flex; align-items: center; white-space: nowrap;
+  padding: 1px 7px; border-radius: 9px; font-size: 10px; line-height: 1.7;
+}
+.goal-status--live { color: var(--lx-ok); background: color-mix(in srgb, var(--lx-ok) 14%, transparent); }
+.goal-status--live::before { content: ''; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: currentColor; }
+.goal-status--ok { color: var(--lx-ok); background: color-mix(in srgb, var(--lx-ok) 10%, transparent); }
+.goal-status--err { color: var(--lx-error); background: color-mix(in srgb, var(--lx-error) 12%, transparent); }
+.goal-status--muted { color: var(--lx-text-mute); background: color-mix(in srgb, var(--lx-text-mute) 10%, transparent); }
 .topbar__actions { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
 
 .btn {
@@ -174,6 +176,7 @@ button, input, select { font: inherit; }
 .run-item__id { font: 11px/1.3 var(--lx-mono); color: var(--lx-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .run-item__text { color: var(--lx-text-mute); font-size: 11px; line-height: 1.4; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .run-item .dot { margin-top: 4px; }
+.run-item .goal-status { margin-top: 3px; }
 .run-item--pending { border: 1px dashed var(--lx-border); }
 .run-item--pending .goal__activity-text { flex: 0 0 auto; max-width: 42%; color: var(--lx-ok); font-size: 10px; line-height: 1.35; text-align: right; }
 /* Parked (aborted/errored) tasks stay visible in the rail, dimmed. */

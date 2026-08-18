@@ -1161,10 +1161,6 @@ const I18N = {
     activityModelRound: '新一轮推理开始',
     thinkBlockTitle: '思考过程（点击展开）',
     elapsedLabel: (t) => `已用时 ${t}`,
-    nextPoll: (t) => `下次轮询 ${t}`,
-    intervalMath: (iv, base, mult, n, cap) => `间隔 ${iv}m（基准 ${base}m ×${mult}^${n}，上限 ${cap}m）`,
-    intervalPlain: (iv) => `间隔 ${iv}m`,
-    retryIn: (n, t) => `↻ 轮询失败 ×${n} · ${t} 后重试`,
     waitingOn: (w) => `等待：${w}`,
     cancel: '取消',
     needProject: '执行 run-once 需要先选择项目目录',
@@ -1177,12 +1173,12 @@ const I18N = {
     groupError: '异常',
     colEmpty: '暂无',
     loadingGoals: '正在读取任务…',
-    presenceLive: '心跳运行中',
-    presencePaused: '心跳已暂停',
-    presenceIdle: '心跳未启动',
-    presenceNoCli: 'loopx 不可用',
-    hbNext: (t) => `下次心跳 ${t}`,
-    hbChecking: '正在检查…',
+    statusRunning: '执行中',
+    statusPaused: '已停表',
+    statusErroring: (n) => `失败 ×${n}`,
+    statusUnmonitored: '监控已关',
+    statusManual: '自动已关',
+    statusAuto: '自动运行',
     runCancelled: '运行已取消',
     groupBacklog: '待处理',
     groupActive: '进行中',
@@ -1326,10 +1322,6 @@ const I18N = {
     activityModelRound: 'New reasoning round started',
     thinkBlockTitle: 'Reasoning (click to expand)',
     elapsedLabel: (t) => `elapsed ${t}`,
-    nextPoll: (t) => `next poll in ${t}`,
-    intervalMath: (iv, base, mult, n, cap) => `every ${iv}m (base ${base}m ×${mult}^${n}, cap ${cap}m)`,
-    intervalPlain: (iv) => `every ${iv}m`,
-    retryIn: (n, t) => `↻ poll failed ×${n} · retry in ${t}`,
     waitingOn: (w) => `waiting on: ${w}`,
     cancel: 'Cancel',
     needProject: 'Run-once requires a project directory',
@@ -1342,12 +1334,12 @@ const I18N = {
     groupError: 'Errors',
     colEmpty: 'Nothing here',
     loadingGoals: 'Loading tasks…',
-    presenceLive: 'Heartbeat live',
-    presencePaused: 'Heartbeat paused',
-    presenceIdle: 'Heartbeat idle',
-    presenceNoCli: 'loopx unavailable',
-    hbNext: (t) => `next tick in ${t}`,
-    hbChecking: 'checking now…',
+    statusRunning: 'Working',
+    statusPaused: 'Stopped',
+    statusErroring: (n) => `${n} fail`,
+    statusUnmonitored: 'Monitoring off',
+    statusManual: 'Auto-run off',
+    statusAuto: 'Auto-run on',
     runCancelled: 'run cancelled',
     groupBacklog: 'Queued',
     groupActive: 'In progress',
@@ -1828,8 +1820,8 @@ async function pollGoal(g) {
         g.stopped = true;
         log(`[${g.goalId}] unchanged ×${g.unchangedCount} ≥ limit → tick loop stopped`);
       }
-      // Steady-state backoff steps are visible on the card's interval math
-      // (intervalMath); logging every tick would flood the diagnostic log.
+      // Steady-state backoff steps stay invisible on the card; logging every
+      // tick would flood the diagnostic log.
     }
     g.lastDecisionKey = key;
     g.intervalMin = Math.min(Math.max(g.intervalMin, recommended), maxIv);
@@ -2039,7 +2031,6 @@ function pauseHeartbeat() {
   if (S.paused) return;
   S.paused = true;
   if (S.timer) { clearTimeout(S.timer); S.timer = null; }
-  updateHeaderStatus();
 }
 
 function resumeHeartbeat() {
@@ -2050,7 +2041,6 @@ function resumeHeartbeat() {
     if (g.monitoring && !g.stopped && g.nextDueAt <= now) pollGoal(g);
   }
   rearmTimer();
-  updateHeaderStatus();
 }
 
 // ── rendering ─────────────────────────────────────────────
@@ -2107,21 +2097,23 @@ function fmtCountdown(ms) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function fmtInterval(iv) {
-  return iv.toFixed(iv < 10 ? 1 : 0);
+// One-glance answer to "is this task running normally?": a colored status
+// chip per card replaces the global header heartbeat readout.
+function goalStatus(g) {
+  if (g.running) return { cls: 'goal-status--live', text: t('statusRunning') };
+  if (g.userStopped || g.stopped) return { cls: 'goal-status--muted', text: t('statusPaused') };
+  if (g.errorCount > 0) return { cls: 'goal-status--err', text: t('statusErroring', g.errorCount) };
+  if (!g.monitoring) return { cls: 'goal-status--muted', text: t('statusUnmonitored') };
+  if (!g.autoRun) return { cls: 'goal-status--muted', text: t('statusManual') };
+  return { cls: 'goal-status--ok', text: t('statusAuto') };
 }
 
-// Scheduler legibility: expose the interval arithmetic instead of a bare
-// number, so "why hasn't it polled" is answerable from the card.
-function goalMetaText(g) {
-  const now = Date.now();
-  if (g.polling) return '…';
-  if (g.errorCount > 0) return t('retryIn', g.errorCount, fmtCountdown(g.nextDueAt - now));
-  const cd = t('nextPoll', fmtCountdown(g.nextDueAt - now));
-  if (g.hint && g.unchangedCount > 0) {
-    return `${cd} · ${t('intervalMath', fmtInterval(g.intervalMin), fmtInterval(g.hint.base), g.hint.mult, g.unchangedCount, fmtInterval(g.hint.cap))}`;
-  }
-  return `${cd} · ${t('intervalPlain', fmtInterval(g.intervalMin))}`;
+function goalStatusChip(g) {
+  const s = goalStatus(g);
+  const chip = document.createElement('span');
+  chip.className = `goal-status ${s.cls}`;
+  chip.textContent = s.text;
+  return chip;
 }
 
 function showRawJson(g) {
@@ -2386,7 +2378,7 @@ function buildRunItem(g, parked = false) {
   text.className = 'run-item__text';
   text.textContent = goalNarration(g);
   meta.append(id, text);
-  el.append(dot, meta, buildGoalActions(g, true));
+  el.append(dot, meta, goalStatusChip(g), buildGoalActions(g, true));
   return el;
 }
 
@@ -2482,6 +2474,7 @@ function buildGoalCard(g, compact = false) {
     badge.textContent = n > 0 ? t('gateCount', n) : t('groupReview');
     head.appendChild(badge);
   }
+  head.appendChild(goalStatusChip(g));
   el.appendChild(head);
 
   const narration = document.createElement('div');
@@ -2793,10 +2786,7 @@ function renderAllGoals(force = false) {
     return;
   }
   const fp = displayFingerprint();
-  if (!force && fp === lastFingerprint) {
-    updateHeaderStatus();
-    return;
-  }
+  if (!force && fp === lastFingerprint) return;
   lastFingerprint = fp;
 
   // v3.2: the board shows only goals this console owns; other-host goals are
@@ -2879,7 +2869,6 @@ function renderAllGoals(force = false) {
     emptyHint.hidden = false;
   }
   refillComposerTarget();
-  updateHeaderStatus();
   dbgUi('renderDone', `targetOpts=${document.getElementById('composer-target')?.options.length ?? 'n/a'}`);
   } catch (err) {
     dbgUi('renderError', String(err && (err.stack || err.message) || err).slice(0, 500));
@@ -2925,46 +2914,12 @@ function buildMoreFooter(groups) {
   return footer;
 }
 
-// Header presence badge + global next-tick countdown: the single bit that
-// matters most for a console that owns the timer — is it armed right now?
-function updateHeaderStatus() {
-  const presence = document.getElementById('hb-presence');
-  const text = document.getElementById('hb-presence-text');
-  const next = document.getElementById('hb-next');
-  let mode = 'live';
-  if (S.detect && !S.detect.found) mode = 'nocli';
-  else if (S.paused) mode = 'paused';
-  else {
-    let armed = false;
-    for (const g of S.goals.values()) {
-      if (g.monitoring && !g.stopped) { armed = true; break; }
-    }
-    if (!armed) mode = 'idle';
-  }
-  presence.className = `presence presence--${mode}`;
-  text.textContent = t({ live: 'presenceLive', paused: 'presencePaused', idle: 'presenceIdle', nocli: 'presenceNoCli' }[mode]);
-
-  let anyPolling = false;
-  let earliest = Infinity;
-  for (const g of S.goals.values()) {
-    if (g.polling) anyPolling = true;
-    if (g.monitoring && !g.stopped && !g.polling && g.nextDueAt < earliest) earliest = g.nextDueAt;
-  }
-  if (anyPolling) next.textContent = t('hbChecking');
-  else if (mode === 'live' && earliest !== Infinity) next.textContent = t('hbNext', fmtCountdown(earliest - Date.now()));
-  else next.textContent = '';
-}
-
-// countdown repaint only — no CLI calls, no DOM rebuild
+// The panel header carries a live elapsed timer while the selected task
+// runs — constant motion so the user knows the agent is alive. Per-card
+// status chips (goalStatusChip) cover the "is it running normally?" answer.
 function startCountdownLoop() {
   if (S.countdownTimer) clearInterval(S.countdownTimer);
   S.countdownTimer = setInterval(() => {
-    for (const g of S.goals.values()) {
-      const countdowns = document.querySelectorAll(`.countdown[data-goal="${CSS.escape(g.goalId)}"]`);
-      for (const cd of countdowns) cd.textContent = goalMetaText(g);
-    }
-    // The panel header carries a live elapsed timer while the selected task
-    // runs — constant motion so the user knows the agent is alive.
     const activeGoal = S.activeGoalId ? S.goals.get(S.activeGoalId) : null;
     const timer = document.getElementById('goal-detail-timer');
     if (timer) {
@@ -2972,7 +2927,6 @@ function startCountdownLoop() {
         ? t('elapsedLabel', fmtCountdown(Date.now() - activeGoal.runStartedAt))
         : '';
     }
-    updateHeaderStatus();
   }, 1000);
 }
 
@@ -3324,7 +3278,6 @@ async function detect() {
   } catch (err) {
     S.detect = { found: false, probes: [{ error: String(err.message || err) }] };
   }
-  updateHeaderStatus();
   if (S.detect.found) {
     banner.hidden = true;
     document.getElementById('btn-install-loopx').hidden = true;
@@ -4042,7 +3995,6 @@ window.addEventListener('beforeunload', () => {
   applyI18n();
   dbgUi('boot:i18nApplied', `t=${bootMs()}ms`);
   startCountdownLoop();
-  updateHeaderStatus();
   // Detect (banner + prefix persistence) and goal loading run in parallel:
   // listGoals resolves the invocation prefix on its own, so the board no
   // longer waits ~1.4s behind the CLI probe before showing goals.
