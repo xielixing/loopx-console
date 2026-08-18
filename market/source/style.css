@@ -327,12 +327,19 @@ button, input, select { font: inherit; }
 .gate-card--block .gate-card__label::before { content: '⛔ '; color: var(--lx-review); }
 .gate-card--info .gate-card__label::before { content: 'ℹ '; color: var(--lx-text-mute); }
 .gate-card__raw { color: var(--lx-text-mute); font: 10.5px/1.45 var(--lx-mono); white-space: pre-wrap; word-break: break-all; }
+.gate-card__explain { color: var(--lx-text-soft); font-size: 11.5px; line-height: 1.5; }
+.gate-card__raw-details { margin-top: 1px; }
+.gate-card__raw-details summary { cursor: pointer; color: var(--lx-text-mute); font-size: 10.5px; }
+.gate-card__raw-details summary:hover { color: var(--lx-text-soft); }
+.gate-card__raw-details .gate-card__raw { margin-top: 4px; }
 .goal__conclusion { margin-top: 2px; color: var(--lx-ok); font-size: 12px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
 .detail-panel__conclusion { margin-top: 6px; color: var(--lx-ok); font: 600 12.5px/1.4 var(--lx-sans); overflow-wrap: anywhere; }
 .approve-text {
+  display: flex; flex-direction: column; gap: 5px;
   margin: 0; padding: 9px 10px; border: 1px solid var(--lx-border); border-left: 3px solid var(--lx-review);
   border-radius: var(--lx-radius); background: var(--lx-bg); color: var(--lx-text); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere;
 }
+.approve-text__explain { color: var(--lx-text-soft); font-size: 12px; }
 
 /* Intake confirmation sheet */
 .intake-selectbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

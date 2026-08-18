@@ -136,6 +136,11 @@ const I18N = {
     gateTypeInfo: '知会事项',
     gateCardTask: (name) => `任务：${name}`,
     gateItemInfoLabel: (hint) => `知会事项 · ${hint}`,
+    gateRawToggle: '查看原文',
+    gateExplainWrite: '需要你批准：授予写权限后，Agent 才能实施修改并提交 PR。',
+    gateExplainPublish: '需要你批准：发布 / 提交 PR。',
+    gateExplainMerge: '需要你批准：合并操作。',
+    gateExplainReview: '需要你批准：外部评审请求。',
     conclusionMerged: '结论：已修复并合并',
     conclusionCompleted: '结论：修复已完成',
     conclusionNoFollowup: '结论：无需修复（无后续动作）',
@@ -329,6 +334,11 @@ const I18N = {
     gateTypeInfo: 'Informational',
     gateCardTask: (name) => `Task: ${name}`,
     gateItemInfoLabel: (hint) => `Informational · ${hint}`,
+    gateRawToggle: 'Show original text',
+    gateExplainWrite: 'Approval needed: grant write access so the agent can implement changes and submit the PR.',
+    gateExplainPublish: 'Approval needed: publish / submit the PR.',
+    gateExplainMerge: 'Approval needed: merge.',
+    gateExplainReview: 'Approval needed: external review request.',
     conclusionMerged: 'Conclusion: fixed and merged',
     conclusionCompleted: 'Conclusion: fix completed',
     conclusionNoFollowup: 'Conclusion: no fix needed (no follow-up action)',
@@ -1203,6 +1213,20 @@ function gateActionLabel(todo) {
   return null;
 }
 
+// Chinese one-line explanations for the frequent loopx gate wordings; the
+// exact original stays available behind 查看原文.
+const GATE_TEXT_HINTS = [
+  [/write access|read-?only|connected-read-only/i, 'gateExplainWrite'],
+  [/publish|pull ?request/i, 'gateExplainPublish'],
+  [/merge/i, 'gateExplainMerge'],
+  [/review/i, 'gateExplainReview'],
+];
+function gateExplain(raw) {
+  const text = String(raw || '');
+  for (const [re, key] of GATE_TEXT_HINTS) if (re.test(text)) return key;
+  return null;
+}
+
 // Publish-scope gates (external PR creation / review request) trigger the
 // console's own PR flow on approval — submitting the PR IS the default.
 const PUBLISH_TODO_RE = /publish|external_review|reviewer|pr_|pull_request/i;
@@ -1270,11 +1294,23 @@ function buildGateItemCard(g, todo) {
   btn.onclick = () => openApproveDialog(g, todo);
   title.append(label, btn);
   card.appendChild(title);
+  const explainKey = info.isBlocking ? gateExplain(info.raw) : null;
+  if (explainKey) {
+    const explainEl = document.createElement('div');
+    explainEl.className = 'gate-card__explain';
+    explainEl.textContent = t(explainKey);
+    card.appendChild(explainEl);
+  }
   if (info.raw && info.raw !== info.title) {
+    const details = document.createElement('details');
+    details.className = 'gate-card__raw-details';
+    const summary = document.createElement('summary');
+    summary.textContent = t('gateRawToggle');
     const rawEl = document.createElement('div');
     rawEl.className = 'gate-card__raw';
     rawEl.textContent = info.raw;
-    card.appendChild(rawEl);
+    details.append(summary, rawEl);
+    card.appendChild(details);
   }
   return card;
 }
@@ -1833,12 +1869,35 @@ function openApproveDialog(g, todo) {
   const tokenOk = Boolean(String(S.config.githubToken || '').trim());
   const raw = todo.text || todo.title || todo.todo_id;
   const hint = gateActionLabel(todo);
-  document.getElementById('approve-text').textContent = [
-    isPublish ? t('approvePrHint') : (isGate ? t('approveGateHint') : t('todoDoneHint')),
-    isPublish && !tokenOk ? t('approvePrNeedToken') : '',
-    hint ? t('gateItemWithType', hint) : t('gateItemTitle'),
-    raw,
-  ].filter(Boolean).join('\n');
+  const approveText = document.getElementById('approve-text');
+  approveText.replaceChildren();
+  const lead = document.createElement('div');
+  lead.textContent = isPublish ? t('approvePrHint') : (isGate ? t('approveGateHint') : t('todoDoneHint'));
+  approveText.appendChild(lead);
+  if (isPublish && !tokenOk) {
+    const warn = document.createElement('div');
+    warn.textContent = t('approvePrNeedToken');
+    approveText.appendChild(warn);
+  }
+  const explainKey = (isGate || isPublish) ? gateExplain(raw) : null;
+  if (explainKey) {
+    const explainEl = document.createElement('div');
+    explainEl.className = 'approve-text__explain';
+    explainEl.textContent = t(explainKey);
+    approveText.appendChild(explainEl);
+  }
+  const typeLine = document.createElement('div');
+  typeLine.textContent = hint ? t('gateItemWithType', hint) : t('gateItemTitle');
+  approveText.appendChild(typeLine);
+  const details = document.createElement('details');
+  details.className = 'gate-card__raw-details';
+  const summary = document.createElement('summary');
+  summary.textContent = t('gateRawToggle');
+  const rawEl = document.createElement('div');
+  rawEl.className = 'gate-card__raw';
+  rawEl.textContent = raw;
+  details.append(summary, rawEl);
+  approveText.appendChild(details);
   dlg.querySelector('h2').textContent = isPublish
     ? t('approvePrTitle')
     : (isGate ? t('approveGateTitle') : t('todoDoneTitle'));
