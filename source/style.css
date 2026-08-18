@@ -334,6 +334,16 @@ button, input, select { font: inherit; }
 .gate-card--info .gate-card__label::before { background: var(--lx-text-mute); }
 .gate-card__raw { color: var(--lx-text-mute); font: 10.5px/1.45 var(--lx-mono); white-space: pre-wrap; word-break: break-all; }
 .gate-card__explain { color: var(--lx-text-soft); font-size: 11.5px; line-height: 1.5; }
+.gate-card__background { color: var(--lx-text-soft); font-size: 11.5px; line-height: 1.5; }
+.gate-card__summary {
+  padding: 6px 8px; border-radius: 6px; background: var(--lx-surface-2);
+  color: var(--lx-text); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.gate-card__summary--loading { color: var(--lx-text-mute); font-style: italic; }
+.approve-text__summary {
+  padding: 6px 8px; border-radius: 6px; background: var(--lx-surface-2);
+  color: var(--lx-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .gate-card__raw-details { margin-top: 1px; }
 .gate-card__raw-details summary { cursor: pointer; color: var(--lx-text-mute); font-size: 10.5px; }
 .gate-card__raw-details summary:hover { color: var(--lx-text-soft); }
