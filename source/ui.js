@@ -128,6 +128,11 @@ const I18N = {
     gateSectionHint: '批准类事项需要你批准后任务才会继续；知会/指示类事项标记完成即可。',
     gateItemTitle: '待确认事项',
     gateItemWithType: (hint) => `待确认事项（${hint}）`,
+    gateGroupBlocking: '需要确认 · 阻塞任务',
+    gateGroupInfo: '仅知会 · 不阻塞',
+    gateTypePublish: '发布 / 提交 PR',
+    gateTypeApprove: '审批',
+    gateTypeInfo: '知会事项',
     approveGate: '批准',
     completeTodoBtn: '标记完成',
     approveGateTitle: '批准这项操作？',
@@ -159,7 +164,9 @@ const I18N = {
     publishNeedToken: '发布 PR 需要先配置 GitHub Token',
     approveFailed: (e) => `批准失败：${e}`,
     notifGateTitle: 'LoopX 需要你审批',
-    notifGateBody: (id, n) => `${id} 有 ${n} 项等你处理`,
+    notifGateBody: (id, block, info) => (info > 0
+      ? `${id}：${block} 项待确认、${info} 项仅知会`
+      : `${id} 有 ${block} 项待确认`),
     autoRunNext: '自动执行下一轮',
     autoRunDisabled: (id) => `${id} 连续失败，已暂停自动执行`,
     activityStarting: '正在启动 Agent…',
@@ -305,6 +312,11 @@ const I18N = {
     gateSectionHint: 'Approval items need your approval before the task continues; informational items just need to be marked done.',
     gateItemTitle: 'Pending confirmation',
     gateItemWithType: (hint) => `Pending confirmation (${hint})`,
+    gateGroupBlocking: 'Needs confirmation · blocking',
+    gateGroupInfo: 'Informational · not blocking',
+    gateTypePublish: 'Publish / submit PR',
+    gateTypeApprove: 'Approval',
+    gateTypeInfo: 'Informational',
     approveGate: 'Approve',
     completeTodoBtn: 'Mark done',
     approveGateTitle: 'Approve this action?',
@@ -336,7 +348,9 @@ const I18N = {
     publishNeedToken: 'A GitHub token is required to publish the PR',
     approveFailed: (e) => `Approval failed: ${e}`,
     notifGateTitle: 'LoopX needs your approval',
-    notifGateBody: (id, n) => `${id} has ${n} item${n > 1 ? 's' : ''} waiting for you`,
+    notifGateBody: (id, block, info) => (info > 0
+      ? `${id}: ${block} to confirm, ${info} informational`
+      : `${id} has ${block} item${block > 1 ? 's' : ''} to confirm`),
     autoRunNext: 'Auto-running the next turn',
     autoRunDisabled: (id) => `${id} failed repeatedly — auto-run paused`,
     activityStarting: 'Starting the Agent…',
@@ -591,6 +605,9 @@ function newGoalState(goalId, info) {
     userTodosAt: 0,
     userTodosLoading: false,
     wasGated: false,
+    // First gate observation of the session adopts silently: pre-existing
+    // gates must not re-notify when the console opens or a new task starts.
+    firstGateCheck: true,
     activityLines: [],
     currentActivity: '',
   };
@@ -823,19 +840,30 @@ async function refreshUserTodos(g, force = false) {
 }
 
 function notifyGate(g) {
-  const count = (g.userTodos && g.userTodos.length) || 0;
-  const ask = count && (g.userTodos[0].title || g.userTodos[0].text);
-  const body = ask || t('notifGateBody', goalDisplayName(g), count || 1);
+  const todos = g.userTodos || [];
+  const blocking = todos.filter((td) => gateTodoInfo(td).isBlocking).length;
+  const infoOnly = todos.length - blocking;
+  const body = t('notifGateBody', goalDisplayName(g), blocking, infoOnly);
   try {
     if (app.notifications?.system) {
       app.notifications.system(t('notifGateTitle'), body);
     }
   } catch (_) {}
-  log(`[${g.goalId}] ${t('notifGateBody', goalDisplayName(g), count || 1)}`, false);
+  log(`[${g.goalId}] ${body}`, false);
 }
 
 function syncGateState(g) {
   const gated = isGated(g);
+  if (g.firstGateCheck) {
+    // First observation this session (boot / goal load): adopt the state
+    // silently. A gate that already existed must not fire a "historical"
+    // notification every time the console opens or a new task is created.
+    g.firstGateCheck = false;
+    g.wasGated = gated;
+    if (gated) refreshUserTodos(g, true);
+    else g.userTodos = null;
+    return;
+  }
   if (gated) {
     if (!g.wasGated) {
       // Load the concrete asks first so the notification names the first one
@@ -1167,6 +1195,69 @@ function prBodyFor(g) {
   return lines.join('\n\n');
 }
 
+// Classify one user todo: BLOCKING gates (user_gate / publish scope) need a
+// real decision before the task continues; everything else is informational
+// (guidance instructions etc.) and only needs to be acknowledged.
+function gateTodoInfo(todo) {
+  const isPublish = isPublishTodo(todo);
+  const isBlocking = todo.task_class === 'user_gate' || isPublish;
+  const raw = todo.title || todo.text || todo.todo_id || '';
+  let typeLabel = gateActionLabel(todo);
+  if (!typeLabel) typeLabel = isPublish ? t('gateTypePublish') : (isBlocking ? t('gateTypeApprove') : t('gateTypeInfo'));
+  // Informational items are the user's own instructions (already Chinese):
+  // the text IS the title. Blocking gates lead with the Chinese type label;
+  // loopx's raw wording stays as a dim secondary line.
+  const title = isBlocking ? t('gateItemWithType', typeLabel) : raw;
+  return { isBlocking, isPublish, typeLabel, title, raw };
+}
+
+// One gate item as a card: Chinese title + (blocking) dim raw text + the
+// action button. Shared by the review column and the detail panel.
+function buildGateItemCard(g, todo) {
+  const info = gateTodoInfo(todo);
+  const card = document.createElement('div');
+  card.className = `gate-card ${info.isBlocking ? 'gate-card--block' : 'gate-card--info'}`;
+  const title = document.createElement('div');
+  title.className = 'gate-card__title';
+  title.textContent = info.title;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `btn btn--tiny ${info.isBlocking ? 'btn--approve' : ''}`;
+  btn.textContent = info.isPublish
+    ? t('approveAndPr')
+    : (info.isBlocking ? t('approveGate') : t('completeTodoBtn'));
+  btn.onclick = () => openApproveDialog(g, todo);
+  title.append(btn);
+  card.appendChild(title);
+  if (info.isBlocking && info.raw && info.raw !== info.title) {
+    const rawEl = document.createElement('div');
+    rawEl.className = 'gate-card__raw';
+    rawEl.textContent = info.raw;
+    card.appendChild(rawEl);
+  }
+  return card;
+}
+
+// Blocking first, informational second — two clearly labelled groups.
+function buildGateItemsList(g) {
+  const list = document.createElement('div');
+  list.className = 'gate-items';
+  const todos = g.userTodos || [];
+  const blocking = todos.filter((td) => gateTodoInfo(td).isBlocking);
+  const infoOnly = todos.filter((td) => !gateTodoInfo(td).isBlocking);
+  const group = (label, items) => {
+    if (!items.length) return;
+    const head = document.createElement('div');
+    head.className = 'gate-group-label';
+    head.textContent = label;
+    list.appendChild(head);
+    for (const td of items) list.appendChild(buildGateItemCard(g, td));
+  };
+  group(t('gateGroupBlocking'), blocking);
+  group(t('gateGroupInfo'), infoOnly);
+  return list;
+}
+
 function activityText(line) {
   const text = String(line || '')
     .replace(/^\s*(?:\[[^\]]+\]\s*)+/, '')
@@ -1492,15 +1583,10 @@ function buildGoalCard(g, compact = false) {
   narration.title = goalNarration(g); // full text on hover, no scheduler jargon
   el.appendChild(narration);
 
-  // A gated card leads with the concrete ask, not the generic narration.
+  // A gated card leads with the concrete asks, grouped blocking-first and
+  // rendered as item cards instead of one raw text line.
   if (group === 'review' && g.userTodos && g.userTodos.length) {
-    const ask = document.createElement('div');
-    ask.className = 'goal__gate-ask';
-    const firstAsk = g.userTodos[0];
-    const askRaw = firstAsk.title || firstAsk.text || '';
-    const askHint = gateActionLabel(firstAsk);
-    ask.textContent = askHint ? `${askHint} · ${askRaw}` : askRaw;
-    el.appendChild(ask);
+    el.appendChild(buildGateItemsList(g));
   }
 
   if (g.running || g.currentActivity) {
@@ -1618,31 +1704,7 @@ function buildGatesSection(g) {
     gates.appendChild(loading);
     refreshUserTodos(g);
   } else {
-    for (const todo of g.userTodos) {
-      const item = document.createElement('div');
-      item.className = 'gate-item';
-      const text = document.createElement('div');
-      text.className = 'gate-item__text';
-      const hint = gateActionLabel(todo);
-      const titleEl = document.createElement('div');
-      titleEl.className = 'gate-item__title';
-      titleEl.textContent = hint ? t('gateItemWithType', hint) : t('gateItemTitle');
-      const raw = document.createElement('div');
-      raw.className = 'gate-item__raw';
-      raw.textContent = todo.title || todo.text || todo.todo_id;
-      text.append(titleEl, raw);
-      const approveBtn = document.createElement('button');
-      approveBtn.type = 'button';
-      const todoIsGate = todo.task_class === 'user_gate';
-      const todoIsPublish = isPublishTodo(todo);
-      approveBtn.className = `btn ${todoIsGate || todoIsPublish ? 'btn--approve' : ''}`;
-      approveBtn.textContent = todoIsPublish
-        ? t('approveAndPr')
-        : (todoIsGate ? t('approveGate') : t('completeTodoBtn'));
-      approveBtn.onclick = () => openApproveDialog(g, todo);
-      item.append(text, approveBtn);
-      gates.appendChild(item);
-    }
+    if (g.userTodos.length) gates.appendChild(buildGateItemsList(g));
     if (!g.userTodos.length) {
       const none = document.createElement('div');
       none.className = 'detail__reason';

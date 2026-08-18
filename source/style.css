@@ -290,11 +290,6 @@ button, input, select { font: inherit; }
   background: color-mix(in srgb, var(--lx-review) 9%, transparent);
   color: var(--lx-review); font-size: 10px; font-weight: 650; white-space: nowrap;
 }
-.goal__gate-ask {
-  padding: 2px 0 2px 9px; border-left: 2px solid color-mix(in srgb, var(--lx-review) 62%, var(--lx-border));
-  background: transparent; color: var(--lx-text-soft); font-size: 11.5px; line-height: 1.45;
-  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;
-}
 /* Attention stays semantic without tinting the entire column. */
 .review-zone .zone-head { color: var(--lx-text); }
 .review-zone .zone-count { color: var(--lx-review); font-weight: 700; }
@@ -303,12 +298,18 @@ button, input, select { font: inherit; }
 .btn--approve:hover { border-color: var(--lx-accent-hover); background: var(--lx-accent-hover); color: #fff; }
 .detail__section--gate { border-left: 3px solid var(--lx-review); background: color-mix(in srgb, var(--lx-review) 5%, var(--lx-elevated)); }
 .detail__label--gate { color: var(--lx-review); }
-.gate-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--lx-border); }
-.gate-item:last-child { border-bottom: 0; }
-.gate-item__text { flex: 1; min-width: 0; color: var(--lx-text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.gate-item__title { color: var(--lx-text); }
-.gate-item__raw { margin-top: 2px; color: var(--lx-text-mute); font: 11px/1.45 var(--lx-mono); white-space: pre-wrap; word-break: break-all; }
-.gate-item .btn--approve { flex: 0 0 auto; min-height: 26px; padding: 2px 9px; font-size: 11px; }
+/* Gate items render as cards, blocking-first: 需要确认 items get an amber
+   edge, informational (知会) items stay quiet on the background. */
+.gate-items { display: flex; flex-direction: column; gap: 6px; }
+.gate-group-label { color: var(--lx-text-mute); font-size: 10px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.gate-card { display: flex; flex-direction: column; gap: 5px; padding: 7px 9px; border: 1px solid var(--lx-border); border-radius: var(--lx-radius); background: var(--lx-surface); }
+.gate-card--block { border-color: color-mix(in srgb, var(--lx-review) 55%, var(--lx-border)); background: color-mix(in srgb, var(--lx-review) 4%, var(--lx-surface)); }
+.gate-card--info { background: var(--lx-bg); }
+.gate-card__title { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--lx-text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.gate-card--block .gate-card__title { font-weight: 600; }
+.gate-card--block .gate-card__title::before { content: '⛔ '; color: var(--lx-review); }
+.gate-card--info .gate-card__title::before { content: 'ℹ '; color: var(--lx-text-mute); }
+.gate-card__raw { color: var(--lx-text-mute); font: 10.5px/1.45 var(--lx-mono); white-space: pre-wrap; word-break: break-all; }
 .approve-text {
   margin: 0; padding: 9px 10px; border: 1px solid var(--lx-border); border-left: 3px solid var(--lx-review);
   border-radius: var(--lx-radius); background: var(--lx-bg); color: var(--lx-text); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere;
