@@ -392,6 +392,8 @@ button, input, select { font: inherit; }
 .gate-card__raw-details summary:hover { color: var(--lx-text-soft); }
 .gate-card__raw-details .gate-card__raw { margin-top: 4px; }
 .goal__conclusion { margin-top: 2px; color: var(--lx-ok); font-size: 12px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.goal__stage { margin-top: 2px; color: var(--lx-text-mute); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.detail-panel__stage { margin-top: 4px; color: var(--lx-text-mute); font: 11px/1.4 var(--lx-sans); overflow-wrap: anywhere; }
 .detail-panel__conclusion { margin-top: 6px; color: var(--lx-ok); font: 600 12.5px/1.4 var(--lx-sans); overflow-wrap: anywhere; }
 .approve-text {
   display: flex; flex-direction: column; gap: 5px;

@@ -752,6 +752,19 @@ function githubApiGet(apiPath) {
   return githubApiRequest(apiPath);
 }
 
+// Re-pasting an already-intaken issue must not mint a duplicate todo: check
+// the goal's current todos for an open entry containing this issue URL.
+async function hasOpenIssueTodo(argvPrefix, srcDir, projectDir, goalId, url) {
+  try {
+    const { result, payload } = await runJson(argvPrefix, projectDir, ['todo', 'list', '--goal-id', goalId], { srcDir, timeoutMs: 60000 });
+    if (result.code !== 0) return false;
+    const todos = (payload && payload.todos) || [];
+    return todos.some((td) => td.status !== 'done' && String(td.text || td.title || '').includes(url));
+  } catch (_) {
+    return false;
+  }
+}
+
 // One-shot git invocation bound to a checkout directory.
 function gitRun(projectDir, args, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
@@ -1450,6 +1463,7 @@ module.exports = {
     (async () => {
       const written = [];
       const issueResults = [];
+      const skippedDuplicates = [];
       let failure = null;
       // Which stage failed matters: after bootstrap+register succeed the goal
       // EXISTS, and reporting 'bootstrap_failed' would invite a retry that
@@ -1510,15 +1524,21 @@ module.exports = {
 
         if (issueList.length === 1) {
           // Single issue: the full workflow-plan path yields ordered,
-          // classed todos (branch plan, validation, PR readiness).
-          emit('plan', { current: 1, total: 1, detail: issueList[0].url });
-          failedStage = 'plan';
-          const intake = await planIssueIntake({ argvPrefix, srcDir, projectDir: workingDir, url: issueList[0].url });
-          const result = intake.ok
-            ? await writePlannedTodos({ argvPrefix, srcDir, projectDir: workingDir, goalId: targetGoalId, agentId, intake })
-            : intake;
-          issueResults.push({ url: issueList[0].url, ...result });
-          written.push(...(result.written || []));
+          // classed todos (branch plan, validation, PR readiness). A
+          // re-pasted issue skips the write entirely.
+          if (await hasOpenIssueTodo(argvPrefix, srcDir, workingDir, targetGoalId, issueList[0].url)) {
+            skippedDuplicates.push(issueList[0]);
+            issueResults.push({ url: issueList[0].url, ok: true, skippedDuplicate: true, written: [] });
+          } else {
+            emit('plan', { current: 1, total: 1, detail: issueList[0].url });
+            failedStage = 'plan';
+            const intake = await planIssueIntake({ argvPrefix, srcDir, projectDir: workingDir, url: issueList[0].url });
+            const result = intake.ok
+              ? await writePlannedTodos({ argvPrefix, srcDir, projectDir: workingDir, goalId: targetGoalId, agentId, intake })
+              : intake;
+            issueResults.push({ url: issueList[0].url, ...result });
+            written.push(...(result.written || []));
+          }
         } else if (issueList.length > 1) {
           // Batch: one intake todo per issue. Per-issue workflow-plan happens
           // inside the agent's own turns — planning N issues up front would
@@ -1526,6 +1546,13 @@ module.exports = {
           failedStage = 'todos';
           for (let i = 0; i < issueList.length; i += 1) {
             const issue = issueList[i];
+            // Per-issue dedup: an open todo for this URL already exists —
+            // skip instead of writing a duplicate.
+            if (await hasOpenIssueTodo(argvPrefix, srcDir, workingDir, targetGoalId, issue.url)) {
+              skippedDuplicates.push(issue);
+              written.push({ ok: true, skippedDuplicate: true, actionKind: 'fix_issue', url: issue.url });
+              continue;
+            }
             emit('todos', { current: i + 1, total: issueList.length, detail: issue.url });
             const label = issue.title && issue.title !== `#${issue.number}`
               ? `Fix GitHub issue #${issue.number}: ${issue.title}`
@@ -1594,6 +1621,7 @@ module.exports = {
         objective: text,
         intakeKind,
         issueCount: issueList.length,
+        skippedDuplicates: skippedDuplicates.length,
         writtenOk: okWritten,
         repository: repoLabel,
         projectDir: workingDir,

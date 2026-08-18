@@ -1284,6 +1284,11 @@ const I18N = {
     statusUnmonitored: '监控已关',
     statusManual: '自动已关',
     statusAuto: '自动运行',
+    stageGated: '阶段：等待你的确认',
+    stageRunning: '阶段：执行中',
+    stageFixing: (n) => `阶段：修复 #${n}`,
+    stagePlanning: '阶段：规划中',
+    skippedDuplicates: (n) => `（已跳过 ${n} 个重复 Issue）`,
     runCancelled: '运行已取消',
     groupBacklog: '待处理',
     groupActive: '进行中',
@@ -1501,6 +1506,11 @@ const I18N = {
     statusUnmonitored: 'Monitoring off',
     statusManual: 'Auto-run off',
     statusAuto: 'Auto-run on',
+    stageGated: 'Stage: waiting for your confirmation',
+    stageRunning: 'Stage: working',
+    stageFixing: (n) => `Stage: fixing #${n}`,
+    stagePlanning: 'Stage: planning',
+    skippedDuplicates: (n) => ` (${n} duplicate issue${n > 1 ? 's' : ''} skipped)`,
     runCancelled: 'run cancelled',
     groupBacklog: 'Queued',
     groupActive: 'In progress',
@@ -2564,6 +2574,18 @@ function goalStatusChip(g) {
   return chip;
 }
 
+// Progress stage: which issue the state machine is on — makes "how far from
+// the PR confirmation" visible at a glance on the card and in the panel.
+function goalStageText(g) {
+  if (isTerminal(g)) return null; // the conclusion line covers finished tasks
+  if (isGated(g)) return t('stageGated');
+  if (g.running) return t('stageRunning');
+  const action = String(g.last?.recommendedAction || g.last?.recommended_action || '');
+  const m = action.match(/issue #(\d+)/i);
+  if (m) return t('stageFixing', m[1]);
+  return t('stagePlanning');
+}
+
 function showRawJson(g) {
   document.getElementById('raw-title').textContent = `${g.goalId} · ${t('raw')}`;
   document.getElementById('raw-body').textContent = g.last?.raw
@@ -3275,6 +3297,15 @@ function buildGoalCard(g, compact = false) {
   // rendered as item cards instead of one raw text line.
   if (group === 'review' && g.userTodos && g.userTodos.length) {
     el.appendChild(buildGateItemsList(g));
+  }
+
+  // Live stage line: 规划中 / 修复 #N / 执行中 — the "am I close to the PR
+  // confirmation yet" answer without opening the panel.
+  if (group !== 'done' && group !== 'review') {
+    const stage = document.createElement('div');
+    stage.className = 'goal__stage';
+    stage.textContent = goalStageText(g);
+    el.appendChild(stage);
   } else if (group === 'review' && g.userTodos) {
     // A gate with no approvable item would otherwise be a dead end — say so
     // and offer the one action that can move it: run a turn.
@@ -3346,6 +3377,12 @@ function renderGoalDetails(g) {
   if (conclusionEl) {
     conclusionEl.textContent = isTerminal(g) ? goalConclusion(g) : '';
     conclusionEl.hidden = !isTerminal(g);
+  }
+  const stageEl = document.getElementById('goal-detail-stage');
+  if (stageEl) {
+    const stageText = goalStageText(g);
+    stageEl.textContent = stageText || '';
+    stageEl.hidden = !stageText;
   }
   const body = document.getElementById('goal-detail-body');
 
@@ -4734,15 +4771,16 @@ app.on('worker:taskIntake:done', async (result) => {
   setComposerBusy(false, '');
   const resultGoal = S.goals.get(result.goalId);
   const resultName = goalDisplayName(resultGoal || { goalId: result.goalId, objective: S.intakeDraft?.objective || '' });
+  const skipNote = result.skippedDuplicates > 0 ? ` ${t('skippedDuplicates', result.skippedDuplicates)}` : '';
   if (!result.ok) {
     // Goal exists but some todos failed — adopt it, say so honestly.
-    setTaskFeedback(t('taskPartial', resultName, result.writtenOk ?? 0, result.error || ''), 'error');
+    setTaskFeedback(t('taskPartial', resultName, result.writtenOk ?? 0, result.error || '') + skipNote, 'error');
     log(`[${result.goalId}] task intake partial: ${result.error}`, true);
   } else if (result.mode === 'guide') {
-    setTaskFeedback(t('guideStarted', resultName), 'ok');
+    setTaskFeedback(t('guideStarted', resultName) + skipNote, 'ok');
     log(`[${result.goalId}] guidance written (${result.written.length} todos)`);
   } else {
-    setTaskFeedback(t('taskStarted', resultName), 'ok');
+    setTaskFeedback(t('taskStarted', resultName) + skipNote, 'ok');
     log(`[${result.goalId}] task created (${result.intakeKind}, ${result.written.length} todos)`);
   }
   if (S.intakeDraft) S.intakeDraft.stage = t('taskStageStarting');
