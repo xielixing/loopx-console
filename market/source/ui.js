@@ -2336,11 +2336,21 @@ function buildIntakeRow(draft) {
 // a row selects it and streams its log into the panel beside the rail.
 // Lifecycle buttons live on the goal cards/rows themselves: 中止/继续 +
 // 删除, with stopPropagation so they never toggle the selection underneath.
+// The card's 继续 covers three paused flavours: an explicit stop (restore
+// heartbeat + auto-run), a stopped tick loop (fresh poll), and the
+// boot-paused state (auto-run off) — re-arm and re-decide immediately.
+function resumeCardTask(g) {
+  if (g.userStopped) { resumeGoalTask(g); return; }
+  if (g.stopped) { pollNow(g); return; }
+  setAutoRun(g, true);
+  pollNow(g, { force: true });
+}
+
 function buildGoalActions(g, column) {
   const box = document.createElement('span');
   box.className = 'goal-actions' + (column ? ' goal-actions--column' : '');
-  const primary = (g.userStopped || g.stopped)
-    ? { label: t('resumeTask'), kind: 'primary', handler: () => (g.userStopped ? resumeGoalTask(g) : pollNow(g)) }
+  const primary = (g.userStopped || g.stopped || !g.autoRun)
+    ? { label: t('resumeTask'), kind: 'primary', handler: () => resumeCardTask(g) }
     : { label: t('stopTask'), kind: 'danger', handler: () => openStopConfirm(g) };
   const pb = document.createElement('button');
   pb.type = 'button';
@@ -3761,9 +3771,17 @@ app.on('worker:taskIntake:done', async (result) => {
     log(`[${result.goalId}] task created (${result.intakeKind}, ${result.written.length} todos)`);
   }
   if (S.intakeDraft) S.intakeDraft.stage = t('taskStageStarting');
-  S.intakeDraft = null;
   await refreshGoals();
-  const goal = S.goals.get(result.goalId);
+  // The registry can lag the intake write: keep the pending row until the
+  // goal actually shows up, then swap it for the real row in ONE render —
+  // no "task briefly vanished" gap in the 进行中 column.
+  let goal = S.goals.get(result.goalId);
+  for (let retry = 0; !goal && retry < 6; retry += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    await refreshGoals();
+    goal = S.goals.get(result.goalId);
+  }
+  S.intakeDraft = null;
   if (goal) {
     if (result.mode === 'new') {
       goal.agentId = S.config.agentByGoal[result.goalId] || goal.agentId;
@@ -4021,10 +4039,19 @@ const visObserver = new IntersectionObserver((entries) => {
 });
 visObserver.observe(document.body);
 
-window.addEventListener('beforeunload', () => {
+// Unified teardown: when the console closes (tab closed, scene unmounted, or
+// the whole app exits) everything scheduled or running here must stop with
+// it — no host agent turn or timer outliving the console's lifetime.
+function teardownConsole() {
   if (S.timer) clearTimeout(S.timer);
   if (S.countdownTimer) clearInterval(S.countdownTimer);
-});
+  for (const run of agentRuns.values()) {
+    try { app.agent.cancel(run.sessionId, run.turnId); } catch (_) {}
+  }
+  agentRuns.clear();
+}
+window.addEventListener('beforeunload', teardownConsole);
+window.addEventListener('pagehide', teardownConsole);
 
 // ── boot ──────────────────────────────────────────────────
 (async function boot() {
@@ -4051,6 +4078,19 @@ window.addEventListener('beforeunload', () => {
   dbgUi('boot:detected', `t=${bootMs()}ms found=${detected} theme=${themeProbe()}`);
   await goalsPromise;
   S.bootLoading = false;
+  // Opening the console never auto-resumes a previous task: everything boots
+  // paused (自动已关) and the user starts tasks explicitly with 继续. This
+  // also guarantees "UI shows not running ⇒ nothing runs" after a restart —
+  // no auto-run can fire until the user opts back in.
+  let pausedAny = false;
+  for (const g of S.goals.values()) {
+    if (g.autoRun) {
+      g.autoRun = false;
+      S.config.autoRunByGoal[g.goalId] = false;
+      pausedAny = true;
+    }
+  }
+  if (pausedAny) saveConfig();
   // Fill the composer target dropdown even before the first board paint.
   refillComposerTarget();
   const paints = performance.getEntriesByType('paint')
