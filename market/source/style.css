@@ -316,6 +316,7 @@ button, input, select { font: inherit; }
 .goal__gate-none { color: var(--lx-text-soft); font-size: 11.5px; line-height: 1.5; }
 .gate-group-label { color: var(--lx-text-mute); font-size: 10px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
 .gate-card { display: flex; flex-direction: column; gap: 5px; padding: 7px 9px; border: 1px solid var(--lx-border); border-radius: var(--lx-radius); background: var(--lx-surface); }
+.gate-card, .gate-card__raw, .gate-card__summary, .gate-card__background { user-select: text; -webkit-user-select: text; }
 .gate-card--block { border-color: color-mix(in srgb, var(--lx-review) 55%, var(--lx-border)); background: color-mix(in srgb, var(--lx-review) 4%, var(--lx-surface)); }
 .gate-card--info { background: var(--lx-bg); }
 .gate-card__kicker { color: var(--lx-text-mute); font: 10px/1.4 var(--lx-mono); }

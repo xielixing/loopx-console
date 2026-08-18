@@ -143,6 +143,7 @@ const I18N = {
     gateExplainPreload: '该改动为桌面插件增加一个最小 Electron preload 桥。',
     gateBackground: '背景：',
     gateSummaryLoading: '正在生成中文摘要…',
+    copyCardHint: '复制这张卡片的内容',
     autoApprovedWrite: '已按入库授权自动批准：写权限（离开只读适配器）',
     conclusionMerged: '结论：已修复并合并',
     conclusionCompleted: '结论：修复已完成',
@@ -344,6 +345,7 @@ const I18N = {
     gateExplainPreload: 'This change adds a minimal Electron preload bridge to the desktop plugin.',
     gateBackground: 'Background: ',
     gateSummaryLoading: 'Generating the Chinese summary…',
+    copyCardHint: 'Copy this card',
     autoApprovedWrite: 'Auto-approved per intake consent: write access (leaving the read-only adapter)',
     conclusionMerged: 'Conclusion: fixed and merged',
     conclusionCompleted: 'Conclusion: fix completed',
@@ -1458,7 +1460,34 @@ function buildGateItemCard(g, todo) {
     ? t('approveAndPr')
     : (info.isBlocking ? t('approveGate') : t('completeTodoBtn'));
   btn.onclick = (ev) => { ev.stopPropagation(); openApproveDialog(g, todo); };
-  title.append(label, btn);
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'btn btn--tiny';
+  copyBtn.textContent = t('copy');
+  copyBtn.title = t('copyCardHint');
+  copyBtn.onclick = async (ev) => {
+    ev.stopPropagation();
+    const summary = g.gateSummaries && g.gateSummaries.get(todo.todo_id);
+    const titles = issueTitlesFor(g, info.raw);
+    const text = [
+      t('gateCardTask', goalDisplayName(g)),
+      info.title,
+      titles.length ? `${t('gateBackground')}${titles.join('；')}` : '',
+      summary && summary.status === 'done' && summary.text
+        ? summary.text
+        : gateExplainHints(info.raw).map((key) => t(key)).join('\n'),
+      info.raw,
+    ].filter(Boolean).join('\n');
+    try {
+      if (app.clipboard && app.clipboard.writeText) await app.clipboard.writeText(text);
+      else await navigator.clipboard.writeText(text);
+      copyBtn.textContent = '✓';
+      setTimeout(() => { copyBtn.textContent = t('copy'); }, 1200);
+    } catch (_) {
+      // Clipboard unavailable: leave the button as-is.
+    }
+  };
+  title.append(label, copyBtn, btn);
   card.appendChild(title);
   if (info.isBlocking) {
     const titles = issueTitlesFor(g, info.raw);
