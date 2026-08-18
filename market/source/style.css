@@ -369,7 +369,8 @@ button, input, select { font: inherit; }
   color: var(--lx-text); font: 12px/1.6 var(--lx-sans);
   white-space: pre-wrap; word-break: break-word;
 }
-.activity-prompt { grid-column: 1 / -1; }
+/* Expandable blocks (sent prompt, reasoning) sit in the content column so
+   their summary shares one line with the timestamp. */
 .activity-prompt summary { cursor: pointer; color: var(--lx-accent); }
 .activity-prompt summary:hover { text-decoration: underline; }
 .activity-prompt--think summary { color: var(--lx-text-mute); }
