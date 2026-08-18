@@ -1233,13 +1233,21 @@ const I18N = {
     gateCount: (n) => `等你处理 ${n} 项`,
     gateSectionTitle: '等你处理',
     gateLoading: '正在读取待审批事项…',
+    gateSectionHint: '批准类事项需要你批准后任务才会继续；知会/指示类事项标记完成即可。',
     gateItemTitle: '待确认事项',
     gateItemWithType: (hint) => `待确认事项（${hint}）`,
-    approve: '批准 / 完成',
+    approveGate: '批准',
+    completeTodoBtn: '标记完成',
+    approveGateTitle: '批准这项操作？',
+    todoDoneTitle: '标记为已完成？',
     approveTitle: '确认这项操作？',
     approveNote: '备注（可选，写入 todo 完成记录）',
-    approveConfirm: '确认批准',
+    approveConfirm: '批准并继续',
+    todoDoneConfirm: '标记完成',
+    approveGateHint: '这是需要你批准的事项：批准后，任务将按该事项继续执行。',
+    todoDoneHint: '这是知会/指示类事项：标记完成即可，不需要批准，也不会触发新操作。',
     approveDone: '已批准，任务将继续推进',
+    todoDoneFeedback: '已标记完成',
     approveFailed: (e) => `批准失败：${e}`,
     notifGateTitle: 'LoopX 需要你审批',
     notifGateBody: (id, n) => `${id} 有 ${n} 项等你处理`,
@@ -1390,13 +1398,21 @@ const I18N = {
     gateCount: (n) => `${n} item${n > 1 ? 's' : ''} need you`,
     gateSectionTitle: 'Needs your decision',
     gateLoading: 'Loading pending approvals…',
+    gateSectionHint: 'Approval items need your approval before the task continues; informational items just need to be marked done.',
     gateItemTitle: 'Pending confirmation',
     gateItemWithType: (hint) => `Pending confirmation (${hint})`,
-    approve: 'Approve / complete',
+    approveGate: 'Approve',
+    completeTodoBtn: 'Mark done',
+    approveGateTitle: 'Approve this action?',
+    todoDoneTitle: 'Mark as done?',
     approveTitle: 'Confirm this action?',
     approveNote: 'Note (optional, recorded on the todo)',
-    approveConfirm: 'Approve',
+    approveConfirm: 'Approve and continue',
+    todoDoneConfirm: 'Mark done',
+    approveGateHint: 'This item needs your approval: once approved, the task continues along this action.',
+    todoDoneHint: 'This is an informational/instructional item: marking it done is enough — no approval and no new action.',
     approveDone: 'Approved — the task will continue',
+    todoDoneFeedback: 'Marked done',
     approveFailed: (e) => `Approval failed: ${e}`,
     notifGateTitle: 'LoopX needs your approval',
     notifGateBody: (id, n) => `${id} has ${n} item${n > 1 ? 's' : ''} waiting for you`,
@@ -1585,7 +1601,8 @@ function refillComposerTarget() {
       if (isTerminal(g)) continue;
       const option = document.createElement('option');
       option.value = g.goalId;
-      option.textContent = g.goalId;
+      option.textContent = goalDisplayName(g);
+      option.title = g.goalId;
       select.appendChild(option);
     }
     const options = [...select.options].map((o) => o.value);
@@ -1883,13 +1900,13 @@ async function refreshUserTodos(g, force = false) {
 function notifyGate(g) {
   const count = (g.userTodos && g.userTodos.length) || 0;
   const ask = count && (g.userTodos[0].title || g.userTodos[0].text);
-  const body = ask || t('notifGateBody', g.goalId, count || 1);
+  const body = ask || t('notifGateBody', goalDisplayName(g), count || 1);
   try {
     if (app.notifications?.system) {
       app.notifications.system(t('notifGateTitle'), body);
     }
   } catch (_) {}
-  log(`[${g.goalId}] ${t('notifGateBody', g.goalId, count || 1)}`, false);
+  log(`[${g.goalId}] ${t('notifGateBody', goalDisplayName(g), count || 1)}`, false);
 }
 
 function syncGateState(g) {
@@ -1923,7 +1940,8 @@ async function approveTodo(g, todo, note, button) {
       decisionOutcome: todo.task_class === 'user_gate' ? 'approve' : null,
     });
     if (!res.ok) throw new Error(res.error || 'todo complete failed');
-    log(`[${g.goalId}] ${t('approveDone')} (${todo.todo_id})`);
+    const todoIsGate = todo.task_class === 'user_gate';
+    log(`[${g.goalId}] ${todoIsGate ? t('approveDone') : t('todoDoneFeedback')} (${todo.todo_id})`);
     await refreshUserTodos(g, true);
     pollNow(g, { force: true }); // approval may clear the gate — re-decide immediately
     return true;
@@ -2124,6 +2142,21 @@ function goalNarration(g) {
   // board speaks in objectives, errors, and states; the raw reason stays in
   // the diagnostics log.
   return g.objective || g.lastError || g.last?.state || g.state || g.goalId || '';
+}
+
+// Friendly display name: "<repo>#<n>" from the intake link, the bare repo
+// slug, or the clone-cache folder name. The raw goalId (loopx's identity)
+// always stays reachable as a tooltip, so nothing becomes unfindable.
+function goalDisplayName(g) {
+  const text = String(g.objective || '');
+  const issue = text.match(/github\.com\/[^/\s]+\/([^/\s]+)\/(?:issues|pull)\/(\d+)/i);
+  if (issue) return `${issue[1].replace(/\.git$/i, '')}#${issue[2]}`;
+  const repo = text.match(/github\.com\/[^/\s]+\/([^/\s?#]+)/i);
+  if (repo) return repo[1].replace(/\.git$/i, '');
+  const dir = String(goalProjectDir(g.goalId) || '');
+  const base = dir.split(/[\\/]/).filter(Boolean).pop() || '';
+  if (base) return base;
+  return String(g.goalId || '').replace(/^bfx-/, '');
 }
 
 // waiting_on values are loopx identifiers ('user', 'controller', …); translate
@@ -2347,7 +2380,8 @@ function buildRunItem(g, parked = false) {
   meta.className = 'run-item__meta';
   const id = document.createElement('span');
   id.className = 'run-item__id';
-  id.textContent = g.goalId;
+  id.textContent = goalDisplayName(g);
+  id.title = g.goalId;
   const text = document.createElement('span');
   text.className = 'run-item__text';
   text.textContent = goalNarration(g);
@@ -2401,7 +2435,7 @@ function buildOtherGoalsRows(goals) {
     meta.className = 'other-tasks__meta';
     const id = document.createElement('span');
     id.className = 'other-tasks__id';
-    id.textContent = g.goalId;
+    id.textContent = goalDisplayName(g);
     id.title = g.goalId;
     const narration = document.createElement('span');
     narration.className = 'other-tasks__text';
@@ -2437,7 +2471,8 @@ function buildGoalCard(g, compact = false) {
   head.appendChild(dot);
   const id = document.createElement('span');
   id.className = 'goal__id';
-  id.textContent = g.goalId;
+  id.textContent = goalDisplayName(g);
+  id.title = g.goalId;
   head.appendChild(id);
   if (group === 'review') {
     const badge = document.createElement('span');
@@ -2459,7 +2494,10 @@ function buildGoalCard(g, compact = false) {
   if (group === 'review' && g.userTodos && g.userTodos.length) {
     const ask = document.createElement('div');
     ask.className = 'goal__gate-ask';
-    ask.textContent = g.userTodos[0].title || g.userTodos[0].text || '';
+    const firstAsk = g.userTodos[0];
+    const askRaw = firstAsk.title || firstAsk.text || '';
+    const askHint = gateActionLabel(firstAsk);
+    ask.textContent = askHint ? `${askHint} · ${askRaw}` : askRaw;
     el.appendChild(ask);
   }
 
@@ -2499,7 +2537,9 @@ function renderGoalDetails(g) {
 
   const group = goalGroup(g);
   document.getElementById('goal-detail-kicker').textContent = t(GROUP_I18N_KEY[group]);
-  document.getElementById('goal-detail-title').textContent = g.goalId;
+  const detailTitle = document.getElementById('goal-detail-title');
+  detailTitle.textContent = goalDisplayName(g);
+  detailTitle.title = g.goalId;
   const body = document.getElementById('goal-detail-body');
   body.replaceChildren();
 
@@ -2511,6 +2551,10 @@ function renderGoalDetails(g) {
     gatesLabel.className = 'detail__label detail__label--gate';
     gatesLabel.textContent = t('gateSectionTitle');
     gates.appendChild(gatesLabel);
+    const explain = document.createElement('div');
+    explain.className = 'detail__reason';
+    explain.textContent = t('gateSectionHint');
+    gates.appendChild(explain);
     if (g.userTodos === null) {
       const loading = document.createElement('div');
       loading.className = 'detail__reason';
@@ -2533,8 +2577,9 @@ function renderGoalDetails(g) {
         text.append(titleEl, raw);
         const approveBtn = document.createElement('button');
         approveBtn.type = 'button';
-        approveBtn.className = 'btn btn--approve';
-        approveBtn.textContent = t('approve');
+        const todoIsGate = todo.task_class === 'user_gate';
+        approveBtn.className = `btn ${todoIsGate ? 'btn--approve' : ''}`;
+        approveBtn.textContent = todoIsGate ? t('approveGate') : t('completeTodoBtn');
         approveBtn.onclick = () => openApproveDialog(g, todo);
         item.append(text, approveBtn);
         gates.appendChild(item);
@@ -2583,11 +2628,16 @@ function renderGoalDetails(g) {
 // click. The dialog is the only writer of todo complete from the UI.
 function openApproveDialog(g, todo) {
   const dlg = document.getElementById('dlg-approve');
+  const isGate = todo.task_class === 'user_gate';
   const raw = todo.text || todo.title || todo.todo_id;
   const hint = gateActionLabel(todo);
-  document.getElementById('approve-text').textContent = hint
-    ? `${t('gateItemWithType', hint)}\n${raw}`
-    : `${t('gateItemTitle')}\n${raw}`;
+  document.getElementById('approve-text').textContent = [
+    isGate ? t('approveGateHint') : t('todoDoneHint'),
+    hint ? t('gateItemWithType', hint) : t('gateItemTitle'),
+    raw,
+  ].join('\n');
+  dlg.querySelector('h2').textContent = isGate ? t('approveGateTitle') : t('todoDoneTitle');
+  dlg.querySelector('button[value="approve"]').textContent = isGate ? t('approveConfirm') : t('todoDoneConfirm');
   const noteInput = document.getElementById('approve-note');
   noteInput.value = '';
   dlg.returnValue = 'cancel';
@@ -2603,7 +2653,7 @@ function openApproveDialog(g, todo) {
 function openStopConfirm(g) {
   const dlg = document.getElementById('dlg-stop');
   document.getElementById('stop-title').textContent = t('stopConfirmTitle');
-  document.getElementById('stop-text').textContent = t('stopConfirmText', g.goalId);
+  document.getElementById('stop-text').textContent = t('stopConfirmText', goalDisplayName(g));
   dlg.querySelector('button[value="confirm"]').textContent = t('confirmStop');
   dlg.returnValue = 'cancel';
   dlg.onclose = () => {
@@ -2616,7 +2666,7 @@ function openStopConfirm(g) {
 function openDeleteConfirm(g) {
   const dlg = document.getElementById('dlg-stop');
   document.getElementById('stop-title').textContent = t('deleteConfirmTitle');
-  document.getElementById('stop-text').textContent = t('deleteConfirmText', g.goalId);
+  document.getElementById('stop-text').textContent = t('deleteConfirmText', goalDisplayName(g));
   dlg.querySelector('button[value="confirm"]').textContent = t('confirmDelete');
   dlg.returnValue = 'cancel';
   dlg.onclose = () => {
@@ -3498,7 +3548,8 @@ function openIntakeSheet(resolved, objective, targetGoal = null) {
   else if (guiding && !hasIssues) summary.textContent = t('intakeSummaryGoal');
   else summary.textContent = objective;
   if (guiding) {
-    summary.textContent += `\n${t('guideTargetNote', S.pendingIntake.guideGoalId)}`;
+    const targetG = S.goals.get(S.pendingIntake.guideGoalId);
+    summary.textContent += `\n${t('guideTargetNote', targetG ? goalDisplayName(targetG) : S.pendingIntake.guideGoalId)}`;
   }
   if (resolved.autoClone) {
     summary.textContent += `\n${t('intakeCloneNote', resolved.repo || '?')}`;
@@ -3696,15 +3747,17 @@ app.on('worker:taskIntake:done', async (result) => {
   input.value = '';
   updateTaskKind();
   setComposerBusy(false, '');
+  const resultGoal = S.goals.get(result.goalId);
+  const resultName = goalDisplayName(resultGoal || { goalId: result.goalId, objective: S.intakeDraft?.objective || '' });
   if (!result.ok) {
     // Goal exists but some todos failed — adopt it, say so honestly.
-    setTaskFeedback(t('taskPartial', result.goalId, result.writtenOk ?? 0, result.error || ''), 'error');
+    setTaskFeedback(t('taskPartial', resultName, result.writtenOk ?? 0, result.error || ''), 'error');
     log(`[${result.goalId}] task intake partial: ${result.error}`, true);
   } else if (result.mode === 'guide') {
-    setTaskFeedback(t('guideStarted', result.goalId), 'ok');
+    setTaskFeedback(t('guideStarted', resultName), 'ok');
     log(`[${result.goalId}] guidance written (${result.written.length} todos)`);
   } else {
-    setTaskFeedback(t('taskStarted', result.goalId), 'ok');
+    setTaskFeedback(t('taskStarted', resultName), 'ok');
     log(`[${result.goalId}] task created (${result.intakeKind}, ${result.written.length} todos)`);
   }
   if (S.intakeDraft) S.intakeDraft.stage = t('taskStageStarting');
@@ -3865,7 +3918,7 @@ async function startGuidance(g, text) {
     input.value = '';
     updateTaskKind();
     setComposerBusy(false, '');
-    setTaskFeedback(t('guidanceSent', g.goalId), 'ok');
+    setTaskFeedback(t('guidanceSent', goalDisplayName(g)), 'ok');
     recordGoalActivity(g, t('guidanceLine', text), false, 'agent');
     log(`[${g.goalId}] guidance sent (${text.length} chars)`);
     dbgUi('guidance:done', `goal=${g.goalId} todoId=${res.todoId || ''}`);
