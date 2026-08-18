@@ -1865,6 +1865,10 @@ function setGoalActivityTick(g, text) {
     const emptyEl = stream.querySelector('.activity-empty');
     if (emptyEl) emptyEl.remove();
     stream.appendChild(activityLineElement(entry));
+    // Keep the DOM in lockstep with the array: without this cap the row
+    // indices desync after 240 lines and the in-place stream patches would
+    // hit older rows (the log visibly "jumping back" to old content).
+    while (stream.children.length > 240) stream.removeChild(stream.firstChild);
     if (follow) streamFollowTail(stream);
   } else {
     const panel = document.getElementById('goal-detail-panel');
@@ -2161,8 +2165,10 @@ function renderGoalDetails(g) {
       stream.appendChild(empty);
     }
     body.appendChild(stream);
-    // Land on the latest: a freshly opened panel starts at the bottom, and
-    // expanded reasoning blocks start at their own latest content.
+    // Land on the latest SYNCHRONOUSLY so no frame paints at the top, then
+    // settle once more after the next frame for any late layout shifts.
+    body.scrollTop = body.scrollHeight;
+    updateLogBottomBtn();
     requestAnimationFrame(() => {
       for (const pre of stream.querySelectorAll('.activity-prompt--think pre')) {
         pre.scrollTop = pre.scrollHeight;
