@@ -1403,6 +1403,7 @@ const I18N = {
     stagePlanning: '阶段：规划中',
     skippedDuplicates: (n) => `（已跳过 ${n} 个重复 Issue）`,
     runCancelled: '运行已取消',
+    turnStalled: (m) => `运行僵死：约 ${m} 分钟没有收到 Agent 事件（可能宿主已静默取消本轮），已取消该回合并允许自动重试。`,
     groupBacklog: '待处理',
     groupActive: '进行中',
     groupReview: '等你处理',
@@ -1631,6 +1632,7 @@ const I18N = {
     stagePlanning: 'Stage: planning',
     skippedDuplicates: (n) => ` (${n} duplicate issue${n > 1 ? 's' : ''} skipped)`,
     runCancelled: 'run cancelled',
+    turnStalled: (m) => `Turn stalled: no agent events for about ${m} minutes (the host may have silently cancelled it) — cancelled the turn and allowed an automatic retry.`,
     groupBacklog: 'Queued',
     groupActive: 'In progress',
     groupReview: 'Needs you',
@@ -4161,6 +4163,20 @@ function forgetAgentSession(goalId) {
   }
 }
 
+// A running turn that produces NO agent events for this long is treated as
+// dead (host-side cancel lost the event pipe, webview hiccup, ...). The tick
+// watchdog cancels it and lets the poll loop relaunch on the same session.
+const STALL_TURN_MS = 5 * 60 * 1000;
+
+function stallRecover(g, run) {
+  const idleMin = Math.round((Date.now() - run.lastEventAt) / 60000);
+  const message = t('turnStalled', idleMin);
+  log(`[${g.goalId}] ${message}`, true);
+  recordGoalActivity(g, message, true);
+  try { app.agent.cancel(run.sessionId, run.turnId); } catch (_) {}
+  finishRun(g, { ok: false, error: message });
+}
+
 async function executeRunOnce(g) {
   // Auto-run and the manual confirm dialog can race; whoever arrives second
   // must not reset the live run's state or activity stream.
@@ -4187,8 +4203,19 @@ async function executeRunOnce(g) {
   // freeze is impossible — the elapsed clock visibly stops if it breaks.
   const startedAt = g.runStartedAt;
   const tick = setInterval(() => {
-    if (isLiveGoal(g) && g.running) {
-      setGoalActivityTick(g, t('activityRunning', fmtCountdown(Date.now() - startedAt)));
+    if (!isLiveGoal(g) || !g.running) return;
+    const run = agentRuns.get(g.goalId);
+    if (!run) return;
+    setGoalActivityTick(g, t('activityRunning', fmtCountdown(Date.now() - startedAt)));
+    // Stall watchdog: the host can cancel a turn WITHOUT the console ever
+    // seeing the completion event (webview hiccup / stale-run cleanup breaks
+    // the event pipe). Without this the card stays "running" forever and
+    // auto-run freezes. A turn with zero agent events for this long is dead
+    // for practical purposes: cancel it, report it, and let the poll loop
+    // re-decide — auto-run fires the next turn on the persisted session.
+    if (Date.now() - run.lastEventAt > STALL_TURN_MS) {
+      clearInterval(tick);
+      stallRecover(g, run);
     }
   }, 10000);
   renderGoal(g);
@@ -4217,7 +4244,7 @@ async function executeRunOnce(g) {
     });
     dbgUi('turn:agentStarted', `session=${run.sessionId} turn=${run.turnId} reused=${run.sessionId === requestedSessionId}`);
     rememberAgentSession(g.goalId, run.sessionId);
-    agentRuns.set(g.goalId, { sessionId: run.sessionId, turnId: run.turnId, startedAt, tick });
+    agentRuns.set(g.goalId, { sessionId: run.sessionId, turnId: run.turnId, startedAt, tick, lastEventAt: Date.now() });
   } catch (err) {
     const message = String(err?.message || err);
     // A dead session id (host restarted or session data pruned) is retried
@@ -4482,6 +4509,9 @@ app.agent.onEvent((e) => {
   }
   const g = goalForAgentSession(e.sessionId);
   if (!g) return;
+  // Any event for the goal refreshes the stall watchdog's clock.
+  const liveRun = agentRuns.get(g.goalId);
+  if (liveRun) liveRun.lastEventAt = Date.now();
   if (e.sourceEvent === 'tool-event') {
     // New bridge nests the tool payload under `toolEvent` (event_type +
     // tool_name/tool_id fields); the legacy flat shape stays as a fallback.
