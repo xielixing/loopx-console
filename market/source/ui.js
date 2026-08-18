@@ -1404,6 +1404,7 @@ const I18N = {
     skippedDuplicates: (n) => `（已跳过 ${n} 个重复 Issue）`,
     runCancelled: '运行已取消',
     turnStalled: (m) => `运行僵死：约 ${m} 分钟没有收到 Agent 事件（可能宿主已静默取消本轮），已取消该回合并允许自动重试。`,
+    streamTrimmed: (n) => `（前文已折叠 ${n} 字符）`,
     groupBacklog: '待处理',
     groupActive: '进行中',
     groupReview: '等你处理',
@@ -1633,6 +1634,7 @@ const I18N = {
     skippedDuplicates: (n) => ` (${n} duplicate issue${n > 1 ? 's' : ''} skipped)`,
     runCancelled: 'run cancelled',
     turnStalled: (m) => `Turn stalled: no agent events for about ${m} minutes (the host may have silently cancelled it) — cancelled the turn and allowed an automatic retry.`,
+    streamTrimmed: (n) => `(earlier content trimmed: ${n} chars)`,
     groupBacklog: 'Queued',
     groupActive: 'In progress',
     groupReview: 'Needs you',
@@ -3089,6 +3091,15 @@ function activityText(line) {
   return text.length > 150 ? `${text.slice(0, 147)}...` : text;
 }
 
+// Keep the stream DOM light: multi-KB reasoning blocks are the single biggest
+// layout cost in the log panel. Only the newest tail renders; the full text
+// stays in the persisted log (and the raw dialog), never in the DOM.
+function cappedStreamText(text, cap) {
+  const s = String(text || '');
+  if (s.length <= cap) return s;
+  return `…${t('streamTrimmed', s.length - cap)}…\n${s.slice(-cap)}`;
+}
+
 function activityDisplayText(entry) {
   return entry.count > 1 ? `${entry.line} ×${entry.count}` : entry.line;
 }
@@ -3104,24 +3115,26 @@ function activityLineElement(entry) {
   row.appendChild(time);
   if (entry.kind === 'think' && entry.stream) {
     // Reasoning renders as ONE block, streamed in place and expanded by
-    // default — never a wall of per-paragraph "thinking" rows.
+    // default — never a wall of per-paragraph "thinking" rows. Only the
+    // newest tail goes into the DOM (full text stays persisted).
     const details = document.createElement('details');
     details.className = 'activity-prompt activity-prompt--think';
     details.open = true;
     const summary = document.createElement('summary');
     summary.textContent = t('thinkBlockTitle');
     const pre = document.createElement('pre');
-    pre.textContent = entry.line;
+    pre.textContent = cappedStreamText(entry.line, 2000);
     details.append(summary, pre);
     row.appendChild(details);
   } else if (entry.kind === 'prompt' && entry.raw) {
     // The instructions sent to the agent: collapsed by default, expandable.
+    // Capped in the DOM so one 6KB+ prompt cannot bloat the stream.
     const details = document.createElement('details');
     details.className = 'activity-prompt';
     const summary = document.createElement('summary');
     summary.textContent = activityDisplayText(entry);
     const pre = document.createElement('pre');
-    pre.textContent = entry.raw;
+    pre.textContent = cappedStreamText(entry.raw, 4000);
     details.append(summary, pre);
     row.appendChild(details);
   } else {
