@@ -351,6 +351,9 @@ button, input, select { font: inherit; }
   color: var(--lx-text); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .gate-card__summary--loading { color: var(--lx-text-mute); font-style: italic; }
+.gate-card__cred { font-size: 11px; line-height: 1.5; }
+.gate-card__cred--gh, .gate-card__cred--token { color: var(--lx-ok); }
+.gate-card__cred--none { color: var(--lx-warn); }
 .approve-text__summary {
   padding: 6px 8px; border-radius: 6px; background: var(--lx-surface-2);
   color: var(--lx-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;

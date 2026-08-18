@@ -174,6 +174,12 @@ const I18N = {
     githubTokenMissing: '未配置',
     githubTokenSet: '已配置',
     approveAndPr: '批准并提交 PR',
+    approveOnly: '仅批准，不提交 PR',
+    approveOnlyNote: '用户选择仅批准，不提交 PR',
+    gateCredGh: '✓ 本机 GitHub 已登录（gh），可直接提交 PR',
+    gateCredToken: (login) => `✓ 已配置 GitHub Token（${login}）`,
+    gateCredNone: '⚠ 尚未登录 GitHub：提交 PR 前请先完成登录',
+    gateCredSetup: '配置 GitHub 登录',
     approvePrTitle: '批准并提交 PR？',
     approvePrHint: '批准后控制台将自动：检查/创建你的 fork → 推送修复分支 → 向原仓库创建 PR（标题带 [bitfun-loopx] 标识，可被 GitHub 搜索统计）。',
     approvePrNeedToken: '⚠ 尚未配置 GitHub Token，点击「批准」后将先打开 Token 设置。',
@@ -383,6 +389,12 @@ const I18N = {
     githubTokenMissing: 'Not configured',
     githubTokenSet: 'Configured',
     approveAndPr: 'Approve & submit PR',
+    approveOnly: 'Approve only (no PR)',
+    approveOnlyNote: 'User approved without a PR submission',
+    gateCredGh: '✓ GitHub signed in on this machine (gh) — the PR can be submitted directly',
+    gateCredToken: (login) => `✓ GitHub token configured (${login})`,
+    gateCredNone: '⚠ Not signed in to GitHub yet — sign in before submitting the PR',
+    gateCredSetup: 'Sign in to GitHub',
     approvePrTitle: 'Approve and submit the PR?',
     approvePrHint: 'On approval the console will: check/create your fork → push the fix branch → create a PR against the upstream repository (the title carries the [bitfun-loopx] marker so the tool\'s PRs are searchable).',
     approvePrNeedToken: '⚠ No GitHub token configured yet — approving will open the token settings first.',
@@ -467,6 +479,8 @@ const S = {
     // (fork → push branch → create PR). Kept in the local app storage only.
     githubToken: '',
     githubLogin: '',
+    // Local GitHub CLI credential probe (null = unknown, probed at boot).
+    ghAvailable: null,
     // Drag-resizable column widths in px (0 = CSS default).
     reviewZoneWidth: 0,
     railWidth: 0,
@@ -997,6 +1011,16 @@ async function refreshUserTodos(g, force = false) {
     for (const todo of g.userTodos || []) {
       if (gateTodoInfo(todo).isBlocking) ensureGateSummary(g, todo);
     }
+    // Publish guidance needs the GitHub credential state: probe the local gh
+    // CLI once per session when it is still unknown.
+    if (S.ghAvailable === null) {
+      try {
+        const probe = await app.call('loopx.githubGhToken', {});
+        S.ghAvailable = Boolean(probe && probe.ok);
+      } catch (_) {
+        S.ghAvailable = false;
+      }
+    }
   } catch (err) {
     log(`[${g.goalId}] listTodos error: ${err.message || err}`, true);
     if (!g.userTodos) g.userTodos = [];
@@ -1045,13 +1069,14 @@ function syncGateState(g) {
   g.wasGated = gated;
 }
 
-async function approveTodo(g, todo, note, button) {
+async function approveTodo(g, todo, note, button, opts = {}) {
   if (button) button.disabled = true;
   try {
     // Publish gates publish by default: the console forks (when needed),
     // pushes the branch and creates the PR first, then completes the todo so
-    // loopx reconciles the created PR instead of pushing on its own.
-    if (isPublishTodo(todo)) {
+    // loopx reconciles the created PR instead of pushing on its own. The user
+    // can opt out of the PR submission (仅批准).
+    if (isPublishTodo(todo) && opts.publish !== false) {
       let token = String(S.config.githubToken || '').trim();
       if (!token) {
         // Reuse the machine's GitHub CLI credential when available — BitFun
@@ -1092,6 +1117,9 @@ async function approveTodo(g, todo, note, button) {
         if (button) button.disabled = false;
         return false;
       }
+    }
+    if (isPublishTodo(todo) && opts.publish === false) {
+      note = [note || '', t('approveOnlyNote')].filter(Boolean).join(' · ');
     }
     const res = await app.call('loopx.completeTodo', {
       argvPrefix: S.config.argvPrefix,
@@ -1441,6 +1469,17 @@ function isPublishTodo(todo) {
   return PUBLISH_TODO_RE.test(String(todo?.action_kind || todo?.actionKind || todo?.task_class || todo?.taskClass || ''));
 }
 
+// GitHub credential state for the publish guidance: the host-level gh CLI
+// credential, a configured PAT, or nothing yet — drives the step-by-step
+// 等你处理 guidance.
+function githubCredState() {
+  if (String(S.config.githubToken || '').trim()) {
+    return { mode: 'token', label: t('gateCredToken', S.config.githubLogin || '?') };
+  }
+  if (S.ghAvailable === true) return { mode: 'gh', label: t('gateCredGh') };
+  return { mode: 'none', label: t('gateCredNone') };
+}
+
 // PR identity markers — the countability contract: every PR created by this
 // tool carries both keywords in its title, searchable on GitHub with
 // `"bitfun-loopx" in:title`.
@@ -1597,6 +1636,23 @@ function buildGateItemCard(g, todo) {
         card.appendChild(hintEl);
       }
       ensureGateSummary(g, todo);
+    }
+    // Publish guidance, step by step: show the GitHub credential state and,
+    // when nothing is logged in yet, a setup action right on the card.
+    if (info.isPublish) {
+      const cred = githubCredState();
+      const credLine = document.createElement('div');
+      credLine.className = `gate-card__cred gate-card__cred--${cred.mode}`;
+      credLine.textContent = cred.label;
+      card.appendChild(credLine);
+      if (cred.mode === 'none') {
+        const setup = document.createElement('button');
+        setup.type = 'button';
+        setup.className = 'btn btn--tiny';
+        setup.textContent = t('gateCredSetup');
+        setup.onclick = (ev) => { ev.stopPropagation(); openTokenDialog(); };
+        card.appendChild(setup);
+      }
     }
   }
   if (info.raw && info.raw !== info.title) {
@@ -2188,12 +2244,25 @@ function openApproveDialog(g, todo) {
   dlg.querySelector('button[value="approve"]').textContent = isPublish
     ? t('approveAndPr')
     : (isGate ? t('approveConfirm') : t('todoDoneConfirm'));
+  // Publish gates let the human CHOOSE: submit the PR (default) or approve
+  // without a PR — the choice is part of the guided flow, not a setting.
+  const approveOnlyBtn = dlg.querySelector('#btn-approve-only');
+  if (isPublish) {
+    approveOnlyBtn.hidden = false;
+    approveOnlyBtn.textContent = t('approveOnly');
+    approveOnlyBtn.onclick = () => {
+      dlg.returnValue = 'approve-only';
+      dlg.close('approve-only');
+    };
+  } else {
+    approveOnlyBtn.hidden = true;
+  }
   const noteInput = document.getElementById('approve-note');
   noteInput.value = '';
   dlg.returnValue = 'cancel';
   dlg.onclose = () => {
-    if (dlg.returnValue !== 'approve') return;
-    approveTodo(g, todo, noteInput.value.trim(), null);
+    if (dlg.returnValue === 'approve') approveTodo(g, todo, noteInput.value.trim(), null, { publish: true });
+    else if (dlg.returnValue === 'approve-only') approveTodo(g, todo, noteInput.value.trim(), null, { publish: false });
   };
   dlg.showModal();
 }
