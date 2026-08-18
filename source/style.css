@@ -150,7 +150,7 @@ button, input, select { font: inherit; }
 }
 /* 等你处理 stands alone: one narrow decision column in its own frame. */
 .review-zone {
-  flex: 0 0 300px; min-width: 0; display: flex; flex-direction: column;
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
   overflow: hidden; border: 1px solid var(--lx-border);
   border-radius: var(--lx-radius-lg); background: var(--lx-surface);
 }
@@ -161,7 +161,7 @@ button, input, select { font: inherit; }
   border: 1px solid var(--lx-border); border-radius: var(--lx-radius-lg); background: var(--lx-surface);
 }
 .run-rail {
-  flex: 0 0 250px; min-width: 0; display: flex; flex-direction: column;
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
   background: var(--lx-surface);
 }
 .run-rail__list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px; }
@@ -201,7 +201,7 @@ button, input, select { font: inherit; }
    remaining width beside the directory rail. */
 .detail-panel {
   position: relative;
-  flex: 1 1 auto; min-width: 340px; display: flex; flex-direction: column;
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
   min-height: 0; border-left: 1px solid var(--lx-border);
   background: var(--lx-elevated);
 }
@@ -215,7 +215,7 @@ button, input, select { font: inherit; }
 }
 .log-bottom:hover { border-color: var(--lx-accent); color: var(--lx-accent); }
 .detail-empty {
-  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 10px;
   color: var(--lx-text-mute); font-size: 12px;
 }
