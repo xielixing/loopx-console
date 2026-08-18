@@ -310,11 +310,10 @@ button, input, select { font: inherit; }
 
 .btn--approve { border-color: var(--lx-accent); background: var(--lx-accent); color: #fff; }
 .btn--approve:hover { border-color: var(--lx-accent-hover); background: var(--lx-accent-hover); color: #fff; }
-.detail__section--gate { border-left: 3px solid var(--lx-review); background: color-mix(in srgb, var(--lx-review) 5%, var(--lx-elevated)); }
-.detail__label--gate { color: var(--lx-review); }
 /* Gate items render as cards, blocking-first: 需要确认 items get an amber
    edge, informational (知会) items stay quiet on the background. */
 .gate-items { display: flex; flex-direction: column; gap: 6px; }
+.goal__gate-none { color: var(--lx-text-soft); font-size: 11.5px; line-height: 1.5; }
 .gate-group-label { color: var(--lx-text-mute); font-size: 10px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
 .gate-card { display: flex; flex-direction: column; gap: 5px; padding: 7px 9px; border: 1px solid var(--lx-border); border-radius: var(--lx-radius); background: var(--lx-surface); }
 .gate-card--block { border-color: color-mix(in srgb, var(--lx-review) 55%, var(--lx-border)); background: color-mix(in srgb, var(--lx-review) 4%, var(--lx-surface)); }
@@ -359,29 +358,6 @@ button, input, select { font: inherit; }
 
 .dlg::backdrop { background: rgba(0,0,0,.38); }
 .drawer__kicker { color: var(--lx-text-mute); font: 10.5px/1.2 var(--lx-mono); text-transform: uppercase; }
-.detail__section { padding: 14px 16px; border-bottom: 1px solid var(--lx-border); }
-.detail__label { margin-bottom: 7px; color: var(--lx-text-mute); font-size: 10px; font-weight: 650; text-transform: uppercase; }
-.detail__action { color: var(--lx-text); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
-.detail__reason { margin-top: 6px; color: var(--lx-text-soft); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.detail__grid { display: grid; grid-template-columns: 88px 1fr; gap: 8px 12px; font-size: 12px; }
-.detail__key { color: var(--lx-text-mute); }
-.detail__value { min-width: 0; overflow-wrap: anywhere; color: var(--lx-text-soft); }
-.detail__controls { display: flex; flex-direction: column; gap: 12px; }
-.detail__controls .field select, .detail__controls .field input { width: 100%; }
-.detail__repodir {
-  display: flex; align-items: center; gap: 8px; min-width: 0;
-  padding: 7px 8px 7px 10px; border: 1px solid var(--lx-border); border-radius: 8px;
-  background: var(--lx-surface-2);
-}
-.detail__repodir-path {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--lx-text-mute); font: 11px/1.4 var(--lx-mono);
-}
-.detail__repodir-btn { flex: 0 0 auto; }
-.detail__toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--lx-text-soft); font-size: 12px; cursor: pointer; }
-.detail__toggle input { width: 15px; height: 15px; accent-color: var(--lx-accent); }
-.detail__actions { display: flex; flex-wrap: wrap; gap: 7px; padding: 14px 16px; }
-.detail__actions .btn { flex: 1 1 auto; }
 .activity-stream {
   display: flex; flex-direction: column; gap: 6px; max-height: 230px; padding: 9px 10px;
   overflow: auto; border: 1px solid var(--lx-border); border-radius: 4px; background: var(--lx-bg);

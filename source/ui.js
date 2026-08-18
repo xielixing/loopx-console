@@ -124,9 +124,7 @@ const I18N = {
     intakeNoIssues: '该仓库没有 open issues',
     guideStarted: (id) => `已写入引导，任务 ${id} 将按新指示继续`,
     gateCount: (n) => `等你处理 ${n} 项`,
-    gateSectionTitle: '等你处理',
-    gateLoading: '正在读取待审批事项…',
-    gateSectionHint: '批准类事项需要你批准后任务才会继续；知会/指示类事项标记完成即可。',
+    gateEmptyHint: '该门禁暂无可直接批准的事项',
     gateItemTitle: '待确认事项',
     gateItemWithType: (hint) => `待确认事项（${hint}）`,
     gateGroupBlocking: '需要确认 · 阻塞任务',
@@ -322,9 +320,7 @@ const I18N = {
     intakeNoIssues: 'This repository has no open issues',
     guideStarted: (id) => `Guidance written — task ${id} will follow the new instructions`,
     gateCount: (n) => `${n} item${n > 1 ? 's' : ''} need you`,
-    gateSectionTitle: 'Needs your decision',
-    gateLoading: 'Loading pending approvals…',
-    gateSectionHint: 'Approval items need your approval before the task continues; informational items just need to be marked done.',
+    gateEmptyHint: 'This gate has no directly approvable item yet',
     gateItemTitle: 'Pending confirmation',
     gateItemWithType: (hint) => `Pending confirmation (${hint})`,
     gateGroupBlocking: 'Needs confirmation · blocking',
@@ -1664,6 +1660,24 @@ function buildGoalCard(g, compact = false) {
   // rendered as item cards instead of one raw text line.
   if (group === 'review' && g.userTodos && g.userTodos.length) {
     el.appendChild(buildGateItemsList(g));
+  } else if (group === 'review' && g.userTodos) {
+    // A gate with no approvable item would otherwise be a dead end — say so
+    // and offer the one action that can move it: run a turn.
+    const none = document.createElement('div');
+    none.className = 'goal__gate-none';
+    const gateWait = (g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn) || null;
+    none.textContent = gateWait
+      ? (waitingLabel(gateWait) === t('groupReview') ? t('groupReview') : t('waitingOn', waitingLabel(gateWait)))
+      : t('gateEmptyHint');
+    el.appendChild(none);
+    if (!g.running) {
+      const runNext = document.createElement('button');
+      runNext.type = 'button';
+      runNext.className = 'btn btn--tiny btn--primary';
+      runNext.textContent = t('runOnce');
+      runNext.onclick = (ev) => { ev.stopPropagation(); executeRunOnce(g); };
+      el.appendChild(runNext);
+    }
   }
 
   // Finished tasks answer the obvious question on the card itself.
@@ -1720,16 +1734,17 @@ function renderGoalDetails(g) {
   }
   const body = document.getElementById('goal-detail-body');
 
-  // The stream is appended to incrementally while visible (recordGoalActivity
-  // / tick / upsertGoalStream). Rebuilding it here on every state change
-  // reset the scroll position and made the log impossible to follow — rebuild
-  // only when the panel was closed, the goal switched, or the run reset its
-  // lines.
+  // The panel is the LOG and nothing else: gate items already live on the
+  // review column cards (with their action buttons), so repeating them here
+  // would just duplicate what the user is acting on. The stream is appended
+  // to incrementally while visible (recordGoalActivity / tick /
+  // upsertGoalStream); rebuilding it on every state change reset the scroll
+  // position — rebuild only when the panel was closed, the goal switched, or
+  // the run reset its lines.
   let stream = body.querySelector('.activity-stream');
   const fresh = !stream || stream.dataset.goal !== g.goalId
     || stream.children.length > g.activityLines.length;
 
-  const gatesSection = buildGatesSection(g);
   if (fresh) {
     body.replaceChildren();
     stream = document.createElement('div');
@@ -1743,7 +1758,6 @@ function renderGoalDetails(g) {
       empty.textContent = g.running ? t('activityStarting') : t('activityEmpty');
       stream.appendChild(empty);
     }
-    if (gatesSection) body.appendChild(gatesSection);
     body.appendChild(stream);
     // Land on the latest: a freshly opened panel starts at the bottom, and
     // expanded reasoning blocks start at their own latest content.
@@ -1756,14 +1770,7 @@ function renderGoalDetails(g) {
     return;
   }
 
-  // In-sync stream: patch the gates block in place and append missing lines.
-  const oldGates = body.querySelector('.detail__section--gate');
-  if (gatesSection) {
-    if (oldGates) oldGates.replaceWith(gatesSection);
-    else body.insertBefore(gatesSection, stream);
-  } else if (oldGates) {
-    oldGates.remove();
-  }
+  // In-sync stream: append only the missing lines.
   const follow = streamAtTail(stream);
   while (stream.children.length < g.activityLines.length) {
     const row = activityLineElement(g.activityLines[stream.children.length]);
@@ -1772,50 +1779,6 @@ function renderGoalDetails(g) {
     if (pre) pre.scrollTop = pre.scrollHeight;
   }
   if (follow) streamFollowTail(stream);
-}
-
-// The "needs you" block, rebuilt cheaply in place on each panel render.
-function buildGatesSection(g) {
-  if (!isGated(g)) return null;
-  const gates = document.createElement('section');
-  gates.className = 'detail__section detail__section--gate';
-  const gatesLabel = document.createElement('div');
-  gatesLabel.className = 'detail__label detail__label--gate';
-  gatesLabel.textContent = t('gateSectionTitle');
-  gates.appendChild(gatesLabel);
-  const explain = document.createElement('div');
-  explain.className = 'detail__reason';
-  explain.textContent = t('gateSectionHint');
-  gates.appendChild(explain);
-  if (g.userTodos === null) {
-    const loading = document.createElement('div');
-    loading.className = 'detail__reason';
-    loading.textContent = t('gateLoading');
-    gates.appendChild(loading);
-    refreshUserTodos(g);
-  } else {
-    if (g.userTodos.length) gates.appendChild(buildGateItemsList(g));
-    if (!g.userTodos.length) {
-      const none = document.createElement('div');
-      none.className = 'detail__reason';
-      const gateWait = (g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn) || null;
-      none.textContent = gateWait
-        ? (waitingLabel(gateWait) === t('groupReview') ? t('groupReview') : t('waitingOn', waitingLabel(gateWait)))
-        : '—';
-      gates.appendChild(none);
-      // A gate with no approvable todo would otherwise be a dead end —
-      // offer the one action that can move it: run a turn.
-      if (!g.running) {
-        const runNext = document.createElement('button');
-        runNext.type = 'button';
-        runNext.className = 'btn btn--primary';
-        runNext.textContent = t('runOnce');
-        runNext.onclick = () => executeRunOnce(g);
-        gates.appendChild(runNext);
-      }
-    }
-  }
-  return gates;
 }
 
 // The panel's scroll container is the body, not the stream: the stream grows
