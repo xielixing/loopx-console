@@ -375,6 +375,10 @@ button, input, select { font: inherit; }
 .activity-prompt summary:hover { text-decoration: underline; }
 .activity-prompt--think summary { color: var(--lx-text-mute); }
 .activity-prompt--think pre { max-height: 200px; }
+/* In the detail panel the reasoning block grows fully: ONE scroll context
+   (the panel body) means new content always follows the bottom instead of
+   hiding behind a nested scrollbar. */
+.activity-stream--panel .activity-prompt--think pre { max-height: none; }
 .activity-prompt pre {
   margin: 5px 0 0; padding: 7px 8px; max-height: 240px; overflow: auto;
   border: 1px solid var(--lx-border); border-radius: 5px; background: var(--lx-bg);

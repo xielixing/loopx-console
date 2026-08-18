@@ -2677,16 +2677,21 @@ function streamScroller(stream) {
 let lastScrollTraceAt = 0;
 // Keep the tail pinned: every new line or growing block pulls the log to the
 // bottom (explicit product choice — the log always shows the latest). The
-// throttled trace lands in debug-ui.log so a silent scroll failure can be
-// diagnosed from real values.
+// overflow can live on the body OR the stream itself depending on layout, so
+// scroll whichever one actually overflows. The throttled trace lands in
+// debug-ui.log so a silent failure can be diagnosed from real values.
 function streamFollowTail(stream) {
   const sc = streamScroller(stream);
+  const target = stream.scrollHeight > stream.clientHeight + 2 ? stream : sc;
   const now = Date.now();
   if (now - lastScrollTraceAt > 5000) {
     lastScrollTraceAt = now;
-    dbgUi('scrollTail', `el=${sc.className} sh=${sc.scrollHeight} ch=${sc.clientHeight} top=${sc.scrollTop}`);
+    dbgUi('scrollTail',
+      `body sh=${sc.scrollHeight} ch=${sc.clientHeight} top=${sc.scrollTop} `
+      + `stream sh=${stream.scrollHeight} ch=${stream.clientHeight} top=${stream.scrollTop} `
+      + `target=${target === stream ? 'stream' : 'body'}`);
   }
-  sc.scrollTop = sc.scrollHeight;
+  target.scrollTop = target.scrollHeight;
 }
 
 // Gate approval confirmation: full todo text + optional note, one deliberate
@@ -2866,7 +2871,12 @@ function renderAllGoals(force = false) {
   const owned = [];
   const other = [];
   for (const g of S.goals.values()) (isOwnedGoal(g.goalId) ? owned : other).push(g);
-  const buckets = new Map([...PRIMARY_GROUPS, 'backlog', ...ARCHIVE_GROUPS].map((k) => [k, []]));
+  // Every key goalGroup() can return must exist here: a missing key made
+  // buckets.get() return undefined, which crashed the parked spread (and
+  // silently killed every render before the refill/panel steps ran).
+  const buckets = new Map(
+    [...PRIMARY_GROUPS, 'backlog', 'paused', 'error', ...ARCHIVE_GROUPS].map((k) => [k, []]),
+  );
   for (const g of owned) buckets.get(goalGroup(g)).push(g);
 
   // ── 等你处理: a standalone decision column ────────────────
