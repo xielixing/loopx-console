@@ -116,13 +116,13 @@ const I18N = {
     intakeConfirmNew: '创建任务',
     intakeConfirmIssues: (n) => `开始修复 ${n} 个 Issues`,
     intakeConfirmGuide: '写入现有任务',
-    guideTargetNote: (id) => `将写入现有任务：${id}`,
+    guideTargetNote: (id) => `将把所选 Issues 作为子任务并入现有任务：${id}`,
     composerTargetTitle: '目标：新建任务或引导现有任务',
     deleteShort: '删除',
     resizeHandleHint: '拖拽调整列宽',
     intakeNoneSelected: '至少选择一个 Issue',
     intakeNoIssues: '该仓库没有 open issues',
-    guideStarted: (id) => `已写入引导，任务 ${id} 将按新指示继续`,
+    guideStarted: (id) => `已把所选 Issues 作为子任务并入任务 ${id}`,
     gateCount: (n) => `等你处理 ${n} 项`,
     gateEmptyHint: '该门禁暂无可直接批准的事项',
     gateItemTitle: '待确认事项',
@@ -312,13 +312,13 @@ const I18N = {
     intakeConfirmNew: 'Create task',
     intakeConfirmIssues: (n) => `Start fixing ${n} issues`,
     intakeConfirmGuide: 'Write into existing task',
-    guideTargetNote: (id) => `Will be written into existing task: ${id}`,
+    guideTargetNote: (id) => `The selected issues will be added as subtasks of the existing task: ${id}`,
     composerTargetTitle: 'Target: new task or guide an existing goal',
     deleteShort: 'Delete',
     resizeHandleHint: 'Drag to resize the column',
     intakeNoneSelected: 'Select at least one issue',
     intakeNoIssues: 'This repository has no open issues',
-    guideStarted: (id) => `Guidance written — task ${id} will follow the new instructions`,
+    guideStarted: (id) => `Selected issues added as subtasks of task ${id}`,
     gateCount: (n) => `${n} item${n > 1 ? 's' : ''} need you`,
     gateEmptyHint: 'This gate has no directly approvable item yet',
     gateItemTitle: 'Pending confirmation',
@@ -1235,6 +1235,23 @@ function isPublishTodo(todo) {
 // `"bitfun-loopx" in:title`.
 const PR_TITLE_PREFIX = '[bitfun-loopx] ';
 const PR_BODY_MARKER = 'Created by BitFun LoopX Console (bitfun-loopx).';
+
+// loopx's issue-fix model is ONE goal per repository with one todo per
+// issue: a follow-up intake for an already-owned repo must merge into that
+// goal instead of minting a sibling task. Match by the bound checkout
+// directory first, then by the repo slug embedded in the goalId.
+function sameRepoGoal(resolved) {
+  const repoName = String(resolved.repo || '').split('/').pop().replace(/\.git$/i, '').toLowerCase();
+  if (!repoName) return null;
+  const dir = resolved.reuseDir;
+  for (const g of S.goals.values()) {
+    if (isTerminal(g)) continue;
+    if (dir && goalProjectDir(g.goalId) === dir) return g;
+    const m = String(g.goalId || '').match(/^bfx-(.+?)-(?:issue-\d+|issues)(?:-\d+)?$/i);
+    if (m && m[1].toLowerCase() === repoName) return g;
+  }
+  return null;
+}
 
 function prTitleFor(g) {
   return `${PR_TITLE_PREFIX}${goalDisplayName(g)}`;
@@ -3130,10 +3147,18 @@ async function createTaskFromInput() {
     return;
   }
   setTaskFeedback('');
-  // The composer's target dropdown decides where this intake lands: a new
-  // task (default) or an existing goal (guide). The sheet only confirms the
-  // issue selection — the new-vs-guide pick lives in the composer.
+  // One repo = one task: when a non-terminal task already exists for this
+  // repository, the new issues merge into it as todos by default. The
+  // composer target can still be switched to 新建任务 for a separate task.
   const targetSelect = document.getElementById('composer-target');
+  if (targetSelect && !targetSelect.value) {
+    const sameRepo = sameRepoGoal(resolved);
+    if (sameRepo) {
+      targetSelect.value = sameRepo.goalId;
+      updateComposerDeleteBtn();
+      dbgUi('createTask:mergeTarget', sameRepo.goalId);
+    }
+  }
   const targetGoal = targetSelect && targetSelect.value
     ? S.goals.get(targetSelect.value)
     : null;
