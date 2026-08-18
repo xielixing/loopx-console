@@ -132,7 +132,21 @@ button, input, select { font: inherit; }
 .layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .workspace {
   flex: 1; min-height: 0; margin: 8px 14px 0;
-  display: flex; gap: 12px; overflow: hidden;
+  display: flex; gap: 0; overflow: hidden;
+}
+/* Column dividers are draggable handles: the visible line is the handle's
+   center stripe, and grabbing it resizes the neighbouring column. */
+.resize-handle {
+  flex: 0 0 8px; position: relative; z-index: 5; cursor: col-resize;
+  background: transparent; touch-action: none;
+}
+.resize-handle::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
+  border-radius: 2px; background: var(--lx-border);
+  transition: background 120ms ease, width 120ms ease;
+}
+.resize-handle:hover::after, .resize-handle.is-dragging::after {
+  background: var(--lx-accent); width: 3px; left: 2.5px;
 }
 /* 等你处理 stands alone: one narrow decision column in its own frame. */
 .review-zone {
@@ -148,7 +162,7 @@ button, input, select { font: inherit; }
 }
 .run-rail {
   flex: 0 0 250px; min-width: 0; display: flex; flex-direction: column;
-  border-right: 1px solid var(--lx-border); background: var(--lx-surface);
+  background: var(--lx-surface);
 }
 .run-rail__list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px; }
 .zone-head {
@@ -429,7 +443,7 @@ button, input, select { font: inherit; }
 
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; }
-  .workspace { gap: 8px; margin: 8px 8px 0; }
+  .workspace { gap: 0; margin: 8px 8px 0; }
   .review-zone { flex-basis: clamp(220px, 36vw, 260px); }
   .run-rail { flex-basis: clamp(160px, 28vw, 200px); }
   .detail-panel { min-width: 0; }

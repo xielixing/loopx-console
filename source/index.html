@@ -63,7 +63,7 @@
 
     <main class="layout">
       <div class="workspace" id="workspace-root">
-        <section class="review-zone">
+        <section class="review-zone" id="review-zone">
           <div class="zone-head" id="review-zone-head">
             <div class="zone-head-row"><span class="dot dot--review"></span><span id="review-zone-title"></span><span class="zone-count" id="review-zone-count">0</span></div>
             <div class="zone-sub" id="review-zone-sub"></div>
@@ -71,14 +71,16 @@
           <div class="zone-list" id="review-list"></div>
           <div id="more-area"></div>
         </section>
+        <div class="resize-handle" id="resize-review" data-i18n-attr="title" data-i18n="resizeHandleHint"></div>
         <section class="run-frame">
-          <nav class="run-rail">
+          <nav class="run-rail" id="run-rail">
             <div class="zone-head" id="active-zone-head">
               <div class="zone-head-row"><span class="dot dot--active"></span><span id="active-zone-title"></span><span class="zone-count" id="active-zone-count">0</span></div>
               <div class="zone-sub" id="active-zone-sub"></div>
             </div>
             <div class="run-rail__list" id="active-list"></div>
           </nav>
+          <div class="resize-handle" id="resize-rail" data-i18n-attr="title" data-i18n="resizeHandleHint"></div>
           <aside id="goal-detail-panel" class="detail-panel" hidden>
             <header class="detail-panel__header">
               <div><div id="goal-detail-kicker" class="drawer__kicker"></div><h2 id="goal-detail-title"></h2><span id="goal-detail-timer" class="detail-panel__timer"></span><div id="goal-detail-conclusion" class="detail-panel__conclusion" hidden></div></div>

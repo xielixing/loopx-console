@@ -119,6 +119,7 @@ const I18N = {
     guideTargetNote: (id) => `将写入现有任务：${id}`,
     composerTargetTitle: '目标：新建任务或引导现有任务',
     deleteShort: '删除',
+    resizeHandleHint: '拖拽调整列宽',
     intakeNoneSelected: '至少选择一个 Issue',
     intakeNoIssues: '该仓库没有 open issues',
     guideStarted: (id) => `已写入引导，任务 ${id} 将按新指示继续`,
@@ -311,6 +312,7 @@ const I18N = {
     guideTargetNote: (id) => `Will be written into existing task: ${id}`,
     composerTargetTitle: 'Target: new task or guide an existing goal',
     deleteShort: 'Delete',
+    resizeHandleHint: 'Drag to resize the column',
     intakeNoneSelected: 'Select at least one issue',
     intakeNoIssues: 'This repository has no open issues',
     guideStarted: (id) => `Guidance written — task ${id} will follow the new instructions`,
@@ -433,6 +435,9 @@ const S = {
     // (fork → push branch → create PR). Kept in the local app storage only.
     githubToken: '',
     githubLogin: '',
+    // Drag-resizable column widths in px (0 = CSS default).
+    reviewZoneWidth: 0,
+    railWidth: 0,
     // Explicit user stops: stoppedByGoal persists the parked state across
     // restarts; autoRunBeforeStop remembers the auto-run setting to restore.
     stoppedByGoal: {}, autoRunBeforeStop: {},
@@ -3204,6 +3209,62 @@ document.querySelectorAll('dialog .dlg-cancel').forEach((btn) => {
   });
 });
 
+// ── column resize handles ──────────────────────────────────
+// Both dividers are draggable: 等你处理/进行中 and 进行中目录/日志面板.
+// Widths persist in config and re-apply on boot.
+function applyLayoutWidths() {
+  const review = document.getElementById('review-zone');
+  const rail = document.getElementById('run-rail');
+  if (review && S.config.reviewZoneWidth > 0) {
+    review.style.flexBasis = `${S.config.reviewZoneWidth}px`;
+  }
+  if (rail && S.config.railWidth > 0) {
+    rail.style.flexBasis = `${S.config.railWidth}px`;
+  }
+}
+
+function makeResizable(handle, target, { min, max, persistKey }) {
+  if (!handle || !target) return;
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+  handle.addEventListener('pointerdown', (event) => {
+    dragging = true;
+    startX = event.clientX;
+    startW = target.getBoundingClientRect().width;
+    handle.classList.add('is-dragging');
+    document.body.style.userSelect = 'none';
+    try { handle.setPointerCapture(event.pointerId); } catch (_) {}
+    event.preventDefault();
+  });
+  handle.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    const width = Math.min(max, Math.max(min, startW + (event.clientX - startX)));
+    target.style.flexBasis = `${width}px`;
+  });
+  const finish = () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('is-dragging');
+    document.body.style.userSelect = '';
+    S.config[persistKey] = Math.round(target.getBoundingClientRect().width);
+    saveConfig();
+  };
+  handle.addEventListener('pointerup', finish);
+  handle.addEventListener('pointercancel', finish);
+}
+
+makeResizable(
+  document.getElementById('resize-review'),
+  document.getElementById('review-zone'),
+  { min: 220, max: 560, persistKey: 'reviewZoneWidth' },
+);
+makeResizable(
+  document.getElementById('resize-rail'),
+  document.getElementById('run-rail'),
+  { min: 180, max: 480, persistKey: 'railWidth' },
+);
+
 // ── i18n ──────────────────────────────────────────────────
 function applyI18n() {
   document.querySelectorAll('[data-i18n]').forEach((el) => {
@@ -3270,6 +3331,7 @@ window.addEventListener('pagehide', teardownConsole);
 (async function boot() {
   dbgUi('boot:start', `t=${bootMs()}ms readyState=${document.readyState} theme=${themeProbe()}`);
   await loadConfig();
+  applyLayoutWidths();
   dbgUi('boot:configLoaded', `t=${bootMs()}ms projectDir=${S.config.projectDir || '(none)'} theme=${themeProbe()}`);
   try {
     const catalog = await app.ai.getModels();
