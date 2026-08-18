@@ -44,6 +44,13 @@ const I18N = {
     stopTaskHint: '中止该任务：取消本次运行、关闭心跳监控与自动执行',
     deleteTask: '删除任务',
     deleteTaskHint: '删除该任务：归档运行记录并移除注册表条目（注册表会先备份）',
+    groupArchived: '已归档',
+    statusArchived: '已归档',
+    archivedHint: '该任务的运行记录已被移入归档区（loopx 注册表中已无此任务）。恢复后回到「自动已关」的暂停态，点「继续」即可接着跑。',
+    restoreTask: '恢复任务',
+    restoreTaskHint: '把该任务从归档区恢复到看板（重建注册表条目 + 还原运行目录）',
+    restoreDone: (name) => `已恢复：${name}`,
+    restoreFailed: '恢复失败',
     taskStopped: (id) => `任务 ${id} 已中止：心跳与自动执行已关闭`,
     taskResumed: (id) => `任务 ${id} 已继续：心跳与自动执行已重新开启`,
     taskDeleted: (id) => `任务 ${id} 已删除`,
@@ -265,6 +272,13 @@ const I18N = {
     stopTaskHint: 'Abort this task: cancel the current run, disable heartbeat and auto-run',
     deleteTask: 'Delete task',
     deleteTaskHint: 'Delete this task: archive its runtime and remove the registry entry (the registry is backed up first)',
+    groupArchived: 'Archived',
+    statusArchived: 'Archived',
+    archivedHint: 'This task was archived (its runtime moved out of the loopx registry). Restoring brings it back paused; press Resume to keep working.',
+    restoreTask: 'Restore task',
+    restoreTaskHint: 'Restore this task from the archive back to the board (registry entry + runtime dir)',
+    restoreDone: (name) => `Restored: ${name}`,
+    restoreFailed: 'Restore failed',
     taskStopped: (id) => `Task ${id} aborted: heartbeat and auto-run disabled`,
     taskResumed: (id) => `Task ${id} resumed: heartbeat and auto-run re-enabled`,
     taskDeleted: (id) => `Task ${id} deleted`,
@@ -690,6 +704,7 @@ function refillComposerTarget() {
 }
 
 function newGoalState(goalId, info) {
+  const archived = !!info.archived;
   return {
     goalId,
     objective: info.objective || null,
@@ -699,18 +714,22 @@ function newGoalState(goalId, info) {
     waitingOn: info.waitingOn ?? null,
     // v3.2: only owned goals poll by default; other-host goals stay quiet
     // until the user adopts them. An explicit user stop overrides ownership.
-    monitoring: isOwnedGoal(goalId)
+    // Archived goals never poll or auto-run — they live in the quiet 已归档
+    // group until the user restores them explicitly.
+    monitoring: !archived && (isOwnedGoal(goalId)
       ? (S.config.monitorByGoal[goalId] !== false && S.config.stoppedByGoal[goalId] !== true)
-      : S.config.monitorByGoal[goalId] === true,
+      : S.config.monitorByGoal[goalId] === true),
     userStopped: S.config.stoppedByGoal[goalId] === true,
     // loopx's philosophy is auto-run by default: owned goals execute
     // automatically unless the user explicitly switched auto-run off.
     // (Re-discovered cache goals on a fresh import get a fresh config, so
     // defaulting to ON keeps them running instead of vanishing into the
     // hidden queued state.)
-    autoRun: isOwnedGoal(goalId)
+    autoRun: !archived && (isOwnedGoal(goalId)
       ? S.config.autoRunByGoal[goalId] !== false
-      : S.config.autoRunByGoal[goalId] === true,
+      : S.config.autoRunByGoal[goalId] === true),
+    archived,
+    archiveDir: info.archiveDir || null,
     autoFailCount: 0,
     intervalMin: DEFAULT_INTERVAL_MIN,
     nextDueAt: 0,
@@ -1316,10 +1335,11 @@ function isGated(g) {
 // (so a restart can never make a task disappear), and terminal/other-host
 // goals collapse into the quiet "more" chips footer.
 const PRIMARY_GROUPS = ['review', 'active'];
-const ARCHIVE_GROUPS = ['done'];
+const ARCHIVE_GROUPS = ['done', 'archived'];
 const GROUP_I18N_KEY = {
   backlog: 'groupBacklog', active: 'groupActive', review: 'groupReview',
   done: 'groupDone', paused: 'groupPaused', error: 'groupError',
+  archived: 'groupArchived',
 };
 const GROUP_SUB_KEY = {
   review: 'colSubReview', active: 'colSubActive',
@@ -1332,6 +1352,9 @@ function isTerminal(g) {
 }
 
 function goalGroup(g) {
+  // An archived task sits in the quiet 已归档 group with a 恢复 button —
+  // never in a hidden bucket, never mixed into running/paused states.
+  if (g.archived) return 'archived';
   if (isTerminal(g)) return 'done';
   if (g.userStopped) return 'paused';
   if (g.errorCount > 0) return 'error';
@@ -1361,6 +1384,7 @@ function fmtCountdown(ms) {
 // One-glance answer to "is this task running normally?": a colored status
 // chip per card replaces the global header heartbeat readout.
 function goalStatus(g) {
+  if (g.archived) return { cls: 'goal-status--muted', text: t('statusArchived') };
   if (g.running) return { cls: 'goal-status--live', text: t('statusRunning') };
   if (g.userStopped || g.stopped) return { cls: 'goal-status--muted', text: t('statusPaused') };
   if (g.errorCount > 0) return { cls: 'goal-status--err', text: t('statusErroring', g.errorCount) };
@@ -1406,7 +1430,8 @@ function goalNarration(g) {
   // vision-gap replan…") is loopx-internal jargon — never surface it. The
   // board speaks in objectives, errors, and states; the raw reason stays in
   // the diagnostics log.
-  return g.objective || g.lastError || g.last?.state || g.state || g.goalId || '';
+  return g.objective || g.lastError
+    || (g.archived ? t('statusArchived') : g.last?.state || g.state || g.goalId || '');
 }
 
 // The one-line answer to "was it fixed, and why not?" for finished tasks —
@@ -2042,7 +2067,8 @@ function buildGoalCard(g, compact = false) {
   el.id = `goal-${g.goalId}`;
   el.setAttribute('role', 'button');
   el.setAttribute('aria-label', g.goalId);
-  el.onclick = () => openGoalDetails(g);
+  // Archived cards are restore-only: no detail panel, no run controls.
+  if (!g.archived) el.onclick = () => openGoalDetails(g);
 
   const head = document.createElement('div');
   head.className = 'goal__head';
@@ -2079,7 +2105,7 @@ function buildGoalCard(g, compact = false) {
 
   // Live stage line: 规划中 / 修复 #N / 执行中 — the "am I close to the PR
   // confirmation yet" answer without opening the panel.
-  if (group !== 'done' && group !== 'review') {
+  if (group !== 'done' && group !== 'review' && group !== 'archived') {
     const stage = document.createElement('div');
     stage.className = 'goal__stage';
     stage.textContent = goalStageText(g);
@@ -2112,6 +2138,21 @@ function buildGoalCard(g, compact = false) {
     el.appendChild(conclusion);
   }
 
+  // Archived tasks explain themselves and offer the one action that matters.
+  if (group === 'archived') {
+    const hint = document.createElement('div');
+    hint.className = 'goal__conclusion';
+    hint.textContent = t('archivedHint');
+    el.appendChild(hint);
+    const restore = document.createElement('button');
+    restore.type = 'button';
+    restore.className = 'btn btn--tiny btn--primary';
+    restore.textContent = t('restoreTask');
+    restore.title = t('restoreTaskHint');
+    restore.onclick = (ev) => { ev.stopPropagation(); restoreArchivedGoal(g, restore); };
+    el.appendChild(restore);
+  }
+
   if (g.running || g.currentActivity) {
     const activity = document.createElement('div');
     activity.className = 'goal__activity' + (g.running ? ' goal__activity--live' : '');
@@ -2134,7 +2175,8 @@ function buildGoalCard(g, compact = false) {
   }
   if (meta.children.length) el.appendChild(meta);
   // Lifecycle actions on the card itself — more direct than a hidden panel.
-  el.appendChild(buildGoalActions(g, false));
+  // Archived cards get the dedicated 恢复 button instead.
+  if (group !== 'archived') el.appendChild(buildGoalActions(g, false));
   return el;
 }
 
@@ -2494,6 +2536,35 @@ async function deleteGoalTask(g) {
     // Failures must be visible even when the panel shows another goal.
     setTaskFeedback(`${t('deleteTaskFailed')}: ${message}`, 'error');
     openAlertDialog(t('deleteTaskFailed'), `${name}：${message}`);
+  }
+}
+
+// Restore an archived task: rebuild its registry entry and move its runtime
+// back, then refresh — the card returns to the board paused (自动已关).
+async function restoreArchivedGoal(g, button) {
+  if (g.restoring) return;
+  g.restoring = true;
+  if (button) button.disabled = true;
+  const name = goalDisplayName(g);
+  try {
+    const res = await app.call('loopx.restoreGoal', {
+      argvPrefix: S.config.argvPrefix,
+      projectDir: goalProjectDir(g.goalId) || S.config.projectDir,
+      goalId: g.goalId,
+      archiveDir: g.archiveDir || null,
+    });
+    if (!res.ok) throw new Error(res.error || 'restore failed');
+    log(`[${g.goalId}] ${t('restoreDone', name)}`);
+    setTaskFeedback(t('restoreDone', name), 'ok');
+    await refreshGoals();
+  } catch (err) {
+    const message = String(err?.message || err);
+    log(`[${g.goalId}] restore failed: ${message}`, true);
+    setTaskFeedback(`${t('restoreFailed')}: ${message}`, 'error');
+    openAlertDialog(t('restoreFailed'), `${name}：${message}`);
+  } finally {
+    g.restoring = false;
+    renderAllGoals(true);
   }
 }
 
@@ -3228,6 +3299,17 @@ async function refreshGoals() {
         existing.waitingOn = info.waitingOn ?? existing.waitingOn;
         existing.agents = info.agents?.length ? info.agents : existing.agents;
         existing.objective = info.objective ?? existing.objective;
+        // A restored goal leaves the archived group; a goal that got archived
+        // elsewhere (another host / loopx maintenance) moves into it.
+        existing.archived = !!info.archived;
+        existing.archiveDir = info.archiveDir || existing.archiveDir || null;
+        if (!existing.archived) {
+          // Just restored (or still active): re-arm monitoring for owned
+          // goals unless the user explicitly stopped or switched it off.
+          existing.monitoring = isOwnedGoal(info.goalId)
+            ? (S.config.monitorByGoal[info.goalId] !== false && S.config.stoppedByGoal[info.goalId] !== true)
+            : existing.monitoring;
+        }
       } else {
         S.goals.set(info.goalId, newGoalState(info.goalId, info));
       }

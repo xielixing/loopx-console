@@ -1210,6 +1210,78 @@ module.exports = {
     };
   },
 
+  // Restore an archived console goal: move the newest archived runtime back
+  // under <runtime-root>/goals and re-add the registry entry (reconstructed
+  // from the newest registry .del-bak backup that still carries it, with a
+  // minimal fallback). The task comes back paused; 继续 resumes as usual.
+  async 'loopx.restoreGoal'({ projectDir = null, goalId, archiveDir = null } = {}) {
+    if (!goalId) throw new Error('loopx.restoreGoal: goalId is required');
+    dbgWorker('restoreGoal:start', `goalId=${goalId}`);
+    const loopxRoot = path.join(os.homedir(), '.codex', 'loopx');
+    // 1. Locate the newest archive dir for this goal.
+    const archiveRoot = path.join(loopxRoot, 'archived-goals');
+    let source = archiveDir && fs.existsSync(archiveDir) ? archiveDir : null;
+    if (!source && fs.existsSync(archiveRoot)) {
+      let best = null;
+      let bestStamp = '';
+      for (const entry of fs.readdirSync(archiveRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const m = entry.name.match(/^(bfx-.*)-(\d{8}T\d{6}Z)$/);
+        if (!m || m[1] !== goalId) continue;
+        if (m[2] > bestStamp) { bestStamp = m[2]; best = path.join(archiveRoot, entry.name); }
+      }
+      source = best;
+    }
+    if (!source) return { ok: false, goalId, error: 'archived goal directory not found' };
+    // 2. Move the runtime back into the goals root.
+    const goalsRoot = path.join(loopxRoot, 'goals');
+    fs.mkdirSync(goalsRoot, { recursive: true });
+    const target = path.join(goalsRoot, goalId);
+    if (fs.existsSync(target)) return { ok: false, goalId, error: 'goal runtime dir already exists' };
+    fs.renameSync(source, target);
+    // 3. Rebuild the registry entry from the newest del-bak that carries it.
+    let entry = null;
+    const bakFiles = fs.existsSync(loopxRoot)
+      ? fs.readdirSync(loopxRoot).filter((f) => f.startsWith('registry.global.json.del-bak-')).sort().reverse()
+      : [];
+    for (const f of bakFiles) {
+      try {
+        const reg = JSON.parse(fs.readFileSync(path.join(loopxRoot, f), 'utf8'));
+        const hit = (reg.goals || []).find((g) => (g.goal_id || g.id) === goalId);
+        if (hit) { entry = hit; break; }
+      } catch (_) {}
+    }
+    if (!entry) {
+      entry = {
+        id: goalId, domain: 'project-goal-control-plane', status: 'active',
+        role: 'controller', parent_goal_id: null,
+        coordination: { registered_agents: ['bitfun-agent'] },
+      };
+    }
+    // 4. Re-add the entry to the global registry and the repo registry.
+    const repoDir = (entry && entry.repo) || projectDir || null;
+    const targets = [path.join(loopxRoot, 'registry.global.json')];
+    if (repoDir) targets.push(path.join(repoDir, '.loopx', 'registry.json'));
+    let restored = false;
+    for (const rp of targets) {
+      try {
+        const raw = fs.readFileSync(rp, 'utf8');
+        const reg = JSON.parse(raw);
+        if (!Array.isArray(reg.goals)) reg.goals = [];
+        if (!reg.goals.some((g) => (g.goal_id || g.id) === goalId)) {
+          reg.goals.push(entry);
+          reg.updated_at = new Date().toISOString();
+          fs.writeFileSync(rp, `${JSON.stringify(reg, null, 2)}\n`);
+          restored = true;
+        }
+      } catch (err) {
+        dbgWorker('restoreGoal:registryError', `${err.message}`);
+      }
+    }
+    dbgWorker('restoreGoal:done', `restored=${restored}`);
+    return { ok: true, goalId, restored, runtimeDir: target, repoDir: repoDir || null };
+  },
+
   async 'loopx.listTodos'({ argvPrefix = null, projectDir = null, goalId, role = null, status = null } = {}) {
     if (!goalId) throw new Error('loopx.listTodos: goalId is required');
     const { result, payload } = await runJson(argvPrefix, projectDir, ['todo', 'list', '--goal-id', goalId]);
@@ -1692,6 +1764,39 @@ module.exports = {
       }
     }
     for (const goalId of Object.keys(agentsByGoal)) pushGoal(goalId, null);
+    // Archived console goals must never silently vanish from the board: a
+    // task whose runtime loopx moved into archived-goals (e.g. a delete the
+    // user did not mean to keep) is surfaced with state=archived so the UI
+    // can offer 恢复. Only the NEWEST archive per goal id is reported.
+    const activeIds = new Set(goals.map((g) => g.goalId));
+    const archiveRoot = path.join(os.homedir(), '.codex', 'loopx', 'archived-goals');
+    try {
+      if (fs.existsSync(archiveRoot)) {
+        const newest = new Map(); // goalId -> { stamp, name }
+        for (const entry of fs.readdirSync(archiveRoot, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const m = entry.name.match(/^(bfx-.*)-(\d{8}T\d{6}Z)$/);
+          if (!m) continue;
+          const goalId = m[1];
+          if (activeIds.has(goalId)) continue;
+          if (!newest.has(goalId) || m[2] > newest.get(goalId).stamp) {
+            newest.set(goalId, { stamp: m[2], name: entry.name });
+          }
+        }
+        for (const [goalId, info] of newest) {
+          goals.push({
+            goalId,
+            state: 'archived',
+            agents: [],
+            objective: null,
+            projectDir: null,
+            archived: true,
+            archiveDir: path.join(archiveRoot, info.name),
+            archiveName: info.name,
+          });
+        }
+      }
+    } catch (_) {}
     const registryPath = targets.length === 1
       ? (targets[0] || resolveRegistryPath(null))
       : (registryPaths[0] || null);

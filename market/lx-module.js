@@ -728,6 +728,79 @@
       };
     },
 
+    // Restore an archived console goal: move the newest archived runtime back
+    // under ~/.codex/loopx/goals and re-add the registry entry (reconstructed
+    // from the newest del-bak that carries it, with a minimal fallback).
+    // The market fs write scope may deny these paths — degrade honestly.
+    async 'loopx.restoreGoal'({ projectDir = null, goalId, archiveDir = null } = {}) {
+      if (!goalId) throw new Error('loopx.restoreGoal: goalId is required');
+      const loopxRoot = joinP(homeDir, '.codex', 'loopx');
+      const archiveRoot = joinP(loopxRoot, 'archived-goals');
+      let source = archiveDir || null;
+      if (source && !(await existsDir(source))) source = null;
+      if (!source && (await existsDir(archiveRoot))) {
+        let best = null;
+        let bestStamp = '';
+        const entries = await app.fs.readdir(archiveRoot);
+        for (const entry of Array.isArray(entries) ? entries : []) {
+          if (!entry || entry.isDirectory !== true) continue;
+          const m = String(entry.name || '').match(/^(bfx-.*)-(\d{8}T\d{6}Z)$/);
+          if (!m || m[1] !== goalId) continue;
+          if (m[2] > bestStamp) { bestStamp = m[2]; best = joinP(archiveRoot, entry.name); }
+        }
+        source = best;
+      }
+      if (!source) return { ok: false, goalId, error: 'archived goal directory not found' };
+      const goalsRoot = joinP(loopxRoot, 'goals');
+      const target = joinP(goalsRoot, goalId);
+      if (await existsDir(target)) return { ok: false, goalId, error: 'goal runtime dir already exists' };
+      try {
+        await app.fs.mkdir(goalsRoot, { recursive: true });
+        await app.fs.rename(source, target);
+      } catch (err) {
+        return { ok: false, goalId, error: `runtime dir restore failed: ${(err && err.message) || err}` };
+      }
+      let entry = null;
+      try {
+        const bakEntries = await app.fs.readdir(loopxRoot);
+        const baks = (Array.isArray(bakEntries) ? bakEntries : [])
+          .map((e) => String(e.name || ''))
+          .filter((n) => n.startsWith('registry.global.json.del-bak-'))
+          .sort().reverse();
+        for (const f of baks) {
+          try {
+            const reg = JSON.parse(await readText(joinP(loopxRoot, f)));
+            const hit = (reg.goals || []).find((g) => (g.goal_id || g.id) === goalId);
+            if (hit) { entry = hit; break; }
+          } catch (_) {}
+        }
+      } catch (_) {}
+      if (!entry) {
+        entry = {
+          id: goalId, domain: 'project-goal-control-plane', status: 'active',
+          role: 'controller', parent_goal_id: null,
+          coordination: { registered_agents: ['bitfun-agent'] },
+        };
+      }
+      const repoDir = (entry && entry.repo) || projectDir || null;
+      let restored = false;
+      const regPaths = [joinP(loopxRoot, 'registry.global.json')];
+      if (repoDir) regPaths.push(joinP(repoDir, '.loopx', 'registry.json'));
+      for (const rp of regPaths) {
+        try {
+          const reg = JSON.parse(await readText(rp));
+          if (!Array.isArray(reg.goals)) reg.goals = [];
+          if (!reg.goals.some((g) => (g.goal_id || g.id) === goalId)) {
+            reg.goals.push(entry);
+            reg.updated_at = new Date().toISOString();
+            await app.fs.writeFile(rp, JSON.stringify(reg, null, 2));
+            restored = true;
+          }
+        } catch (_) {}
+      }
+      return { ok: true, goalId, restored, runtimeDir: target, repoDir: repoDir || null };
+    },
+
     async 'loopx.listTodos'({ projectDir = null, goalId, role = null, status = null } = {}) {
       if (!goalId) throw new Error('loopx.listTodos: goalId is required');
       const { code, payload, stderr } = await runLoopx(projectDir, ['todo', 'list', '--goal-id', goalId], 60000);
@@ -1134,6 +1207,38 @@
         }
       }
       for (const goalId of Object.keys(agentsByGoal)) pushGoal(goalId, null);
+      // Archived console goals surface in the quiet 已归档 group instead of
+      // vanishing: report the newest archive per bfx- goal id.
+      const activeIds = new Set(goals.map((g) => g.goalId));
+      const archiveRoot = joinP(homeDir, '.codex', 'loopx', 'archived-goals');
+      try {
+        if (await existsDir(archiveRoot)) {
+          const newest = new Map();
+          const entries = await app.fs.readdir(archiveRoot);
+          for (const entry of Array.isArray(entries) ? entries : []) {
+            if (!entry || entry.isDirectory !== true) continue;
+            const m = String(entry.name || '').match(/^(bfx-.*)-(\d{8}T\d{6}Z)$/);
+            if (!m) continue;
+            const goalId = m[1];
+            if (activeIds.has(goalId)) continue;
+            if (!newest.has(goalId) || m[2] > newest.get(goalId).stamp) {
+              newest.set(goalId, { stamp: m[2], name: entry.name });
+            }
+          }
+          for (const [goalId, info] of newest) {
+            goals.push({
+              goalId,
+              state: 'archived',
+              agents: [],
+              objective: null,
+              projectDir: null,
+              archived: true,
+              archiveDir: joinP(archiveRoot, info.name),
+              archiveName: info.name,
+            });
+          }
+        }
+      } catch (_) {}
       const registryPath = targets.length === 1
         ? (targets[0] ? joinP(targets[0], '.loopx', 'registry.json') : globalRegistryPath)
         : (targets[0] ? joinP(targets[0], '.loopx', 'registry.json') : null);

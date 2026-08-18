@@ -270,6 +270,7 @@ button, input, select { font: inherit; }
 .dot--done { background: var(--lx-accent); }
 .dot--paused { background: var(--lx-text-mute); }
 .dot--error { background: var(--lx-error); }
+.dot--archived { background: var(--lx-accent); opacity: .45; }
 
 .goal {
   display: flex; flex-direction: column; gap: 8px; width: 100%; min-height: 94px; padding: 11px;
