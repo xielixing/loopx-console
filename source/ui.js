@@ -3770,15 +3770,17 @@ document.querySelectorAll('dialog .dlg-cancel').forEach((btn) => {
 
 // ── column resize handles ──────────────────────────────────
 // Both dividers are draggable: 等你处理/进行中 and 进行中目录/日志面板.
-// Widths persist in config and re-apply on boot.
+// A dragged column becomes FIXED width (flex: 0 0 Npx) — the others keep
+// their equal share of the remaining space. Widths persist in config and
+// re-apply on boot.
 function applyLayoutWidths() {
   const review = document.getElementById('review-zone');
   const rail = document.getElementById('run-rail');
   if (review && S.config.reviewZoneWidth > 0) {
-    review.style.flexBasis = `${S.config.reviewZoneWidth}px`;
+    review.style.flex = `0 0 ${S.config.reviewZoneWidth}px`;
   }
   if (rail && S.config.railWidth > 0) {
-    rail.style.flexBasis = `${S.config.railWidth}px`;
+    rail.style.flex = `0 0 ${S.config.railWidth}px`;
   }
 }
 
@@ -3799,7 +3801,11 @@ function makeResizable(handle, target, { min, max, persistKey }) {
   handle.addEventListener('pointermove', (event) => {
     if (!dragging) return;
     const width = Math.min(max, Math.max(min, startW + (event.clientX - startX)));
-    target.style.flexBasis = `${width}px`;
+    // Fixed width: flex-grow must stop fighting the drag (with the equal
+    // three-column default, grow would re-widen the column immediately).
+    target.style.flex = `0 0 ${width}px`;
+    target.style.flexGrow = '0';
+    target.style.flexShrink = '0';
   });
   const finish = () => {
     if (!dragging) return;
