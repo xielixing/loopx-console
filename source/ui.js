@@ -120,6 +120,7 @@ const I18N = {
     composerTargetTitle: '目标：新建任务或引导现有任务',
     deleteShort: '删除',
     resizeHandleHint: '拖拽调整列宽',
+    logBottomHint: '回到底部',
     intakeNoneSelected: '至少选择一个 Issue',
     intakeNoIssues: '该仓库没有 open issues',
     guideStarted: (id) => `已把所选 Issues 作为子任务并入任务 ${id}`,
@@ -322,6 +323,7 @@ const I18N = {
     composerTargetTitle: 'Target: new task or guide an existing goal',
     deleteShort: 'Delete',
     resizeHandleHint: 'Drag to resize the column',
+    logBottomHint: 'Back to bottom',
     intakeNoneSelected: 'Select at least one issue',
     intakeNoIssues: 'This repository has no open issues',
     guideStarted: (id) => `Selected issues added as subtasks of task ${id}`,
@@ -477,6 +479,9 @@ const S = {
   pendingIntake: null, // resolveIntake result awaiting sheet confirmation
   moreOpen: new Set(),
   logs: [],
+  // Persisted activity logs (goalId -> {lines}) restored on boot so the
+  // stream survives console restarts; bounded per goal before each save.
+  persistedLogs: {},
 };
 
 // Direction C: a goal created by auto-clone binds to its own clone directory;
@@ -654,6 +659,48 @@ function newGoalState(goalId, info) {
     activityLines: [],
     currentActivity: '',
   };
+  // Restore the persisted log so the stream survives console restarts.
+  const persisted = S.persistedLogs && S.persistedLogs[goalId];
+  if (Array.isArray(persisted) && persisted.length) {
+    state.activityLines = persisted.map((e) => ({
+      time: e.time || '', line: String(e.line || ''), isErr: !!e.isErr,
+      count: e.count || 1, kind: e.kind || null, raw: e.raw || null,
+      stream: !!e.stream, isTick: !!e.isTick,
+    }));
+    const last = [...persisted].reverse().find((e) => e.line && !e.isTick);
+    if (last) state.currentActivity = activityText(String(last.line));
+  }
+  return state;
+}
+
+// ── log persistence ─────────────────────────────────────────
+// The stream is incremental and lives in memory; persist it (debounced, per
+// goal, bounded) so a console restart keeps the log. Raw prompt bodies are
+// capped before they hit storage.
+let logSaveTimer = null;
+let logSaveDirty = false;
+function scheduleLogSave() {
+  logSaveDirty = true;
+  if (logSaveTimer) return;
+  logSaveTimer = setTimeout(() => {
+    logSaveTimer = null;
+    if (!logSaveDirty) return;
+    logSaveDirty = false;
+    saveLogs();
+  }, 3000);
+}
+async function saveLogs() {
+  const logs = {};
+  for (const g of S.goals.values()) {
+    if (!Array.isArray(g.activityLines) || !g.activityLines.length) continue;
+    logs[g.goalId] = g.activityLines.slice(-240).map((e) => ({
+      time: e.time, line: String(e.line || '').slice(0, 2000),
+      isErr: !!e.isErr, count: e.count || 1, kind: e.kind || null,
+      raw: e.raw ? String(e.raw).slice(0, 2000) : null,
+      stream: !!e.stream, isTick: !!e.isTick,
+    }));
+  }
+  try { await app.storage.set('logs', logs); } catch (_) {}
 }
 
 // ── logging ───────────────────────────────────────────────
@@ -702,6 +749,10 @@ async function loadConfig() {
   try {
     const stored = await app.storage.get('config');
     if (stored && typeof stored === 'object') Object.assign(S.config, stored);
+  } catch (_) {}
+  try {
+    const logs = await app.storage.get('logs');
+    if (logs && typeof logs === 'object') S.persistedLogs = logs;
   } catch (_) {}
   // Execution moved to the host agent; drop persisted external-host settings.
   delete S.config.host;
@@ -1630,6 +1681,7 @@ function recordGoalActivity(g, line, isErr = false, kind = null, raw = null) {
       if (timeEl) timeEl.textContent = now;
     }
     g.currentActivity = summary;
+    scheduleLogSave();
     return;
   }
   const entry = { time: now, line: summary, isErr, count: 1, kind, raw };
@@ -1652,6 +1704,7 @@ function recordGoalActivity(g, line, isErr = false, kind = null, raw = null) {
     const panel = document.getElementById('goal-detail-panel');
     if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
   }
+  scheduleLogSave();
 }
 
 // The once-per-10s running clock is one LINE that updates in place, not a new
@@ -1695,6 +1748,7 @@ function setGoalActivityTick(g, text) {
     const panel = document.getElementById('goal-detail-panel');
     if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
   }
+  scheduleLogSave();
 }
 
 // Intake draft as a pending directory row in the 进行中 rail; its stage line
@@ -1992,6 +2046,7 @@ function renderGoalDetails(g) {
         pre.scrollTop = pre.scrollHeight;
       }
       body.scrollTop = body.scrollHeight;
+      updateLogBottomBtn();
     });
     return;
   }
@@ -2046,6 +2101,7 @@ function streamFollowTail(stream) {
       + `target=${target === stream ? 'stream' : 'body'}`);
   }
   target.scrollTop = target.scrollHeight;
+  updateLogBottomBtn();
 }
 
 // Gate approval confirmation: full todo text + optional note, one deliberate
@@ -2211,6 +2267,7 @@ async function deleteGoalTask(g) {
     S.activeGoalId = null;
     document.getElementById('goal-detail-panel').hidden = true;
     await refreshGoals();
+    saveLogs(); // the removed goal's persisted log drops out of the snapshot
     renderAllGoals(true);
   } catch (err) {
     const message = String(err && err.message || err);
@@ -2469,10 +2526,11 @@ async function executeRunOnce(g) {
   if (!g.agentId) { log(`[${g.goalId}] ${t('needAgent')}`, true); return; }
   g.running = true;
   g.runStartedAt = Date.now();
-  g.activityLines = [];
+  // The activity stream accumulates across runs (and restarts via the
+  // persisted log): the run boundary is the 正在启动 line below. Only the
+  // per-turn streaming buffers reset.
   g.agentTextBuffer = '';
   g.thinkBuffer = '';
-  g.currentActivity = '';
   recordGoalActivity(g, t('activityStarting'));
   // Auto-focus: a task that starts running becomes the selected task, so its
   // log streams into the right-hand panel without a click.
@@ -2688,6 +2746,7 @@ function upsertGoalStream(g, kind, text) {
     const cardText = document.querySelector(`.goal__activity-text[data-goal="${CSS.escape(g.goalId)}"]`);
     if (cardText) cardText.textContent = g.currentActivity;
   }
+  scheduleLogSave();
 }
 
 // Tool-event params stream in partial JSON fragments. Accumulate them per
@@ -3563,6 +3622,22 @@ makeResizable(
   document.getElementById('run-rail'),
   { min: 180, max: 480, persistKey: 'railWidth' },
 );
+
+// ── one-click back to the log tail ─────────────────────────
+// Mirrors the chat-style affordance: once the reader scrolls up, a downward
+// arrow button appears; clicking it jumps to the bottom (and keeps following).
+const logBottomBtn = document.getElementById('btn-log-bottom');
+const logBodyEl = document.getElementById('goal-detail-body');
+function updateLogBottomBtn() {
+  if (!logBottomBtn || !logBodyEl) return;
+  const nearBottom = logBodyEl.scrollHeight - logBodyEl.scrollTop - logBodyEl.clientHeight < 48;
+  logBottomBtn.hidden = nearBottom || logBodyEl.scrollHeight <= logBodyEl.clientHeight + 8;
+}
+logBodyEl.addEventListener('scroll', updateLogBottomBtn);
+logBottomBtn.addEventListener('click', () => {
+  logBodyEl.scrollTop = logBodyEl.scrollHeight;
+  updateLogBottomBtn();
+});
 
 // ── i18n ──────────────────────────────────────────────────
 function applyI18n() {

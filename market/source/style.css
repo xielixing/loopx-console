@@ -200,10 +200,20 @@ button, input, select { font: inherit; }
 /* Master-detail: the selected goal's info + live activity stream takes the
    remaining width beside the directory rail. */
 .detail-panel {
+  position: relative;
   flex: 1 1 auto; min-width: 340px; display: flex; flex-direction: column;
   min-height: 0; border-left: 1px solid var(--lx-border);
   background: var(--lx-elevated);
 }
+/* One-click back to the log tail: appears once the reader scrolls up. */
+.log-bottom {
+  position: absolute; right: 18px; bottom: 14px; z-index: 6;
+  display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  border: 1px solid var(--lx-border); border-radius: 50%;
+  background: var(--lx-surface-2); color: var(--lx-text-soft); cursor: pointer;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--lx-text) 12%, transparent);
+}
+.log-bottom:hover { border-color: var(--lx-accent); color: var(--lx-accent); }
 .detail-empty {
   flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 10px;
