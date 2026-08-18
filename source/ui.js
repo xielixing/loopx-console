@@ -2101,10 +2101,11 @@ function upsertGoalStream(g, kind, text) {
     if (kind === 'think') {
       const pre = row.querySelector('.activity-prompt--think pre');
       if (pre) {
+        // Follow only while the user is near the block's bottom: scrolling
+        // up to read reasoning history must not be yanked back down.
+        const nearBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 48;
         pre.textContent = summary;
-        // The block is expanded by default: keep its own view pinned to the
-        // latest reasoning instead of the top.
-        pre.scrollTop = pre.scrollHeight;
+        if (nearBottom) pre.scrollTop = pre.scrollHeight;
       }
     } else {
       const textEl = row.querySelector('.activity-stream__text');
