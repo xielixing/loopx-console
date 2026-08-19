@@ -14,12 +14,9 @@ const path = require('path');
 // The worker process may inherit a restricted PATH (the host app can be
 // launched from an environment without the Python Scripts dir), so common
 // absolute locations of the pip console-script are probed directly too.
-function candidatePrefixes(srcDir) {
-  const list = [
-    { argv: ['loopx'] },
-    { argv: ['python', '-m', 'loopx.cli'] },
-    { argv: ['py', '-3', '-m', 'loopx.cli'] },
-  ];
+// Absolute python.exe locations (robust against a restricted worker PATH).
+function absolutePythonExes() {
+  const list = [];
   const localAppData = process.env.LOCALAPPDATA;
   if (localAppData) {
     const pyRoot = path.join(localAppData, 'Programs', 'Python');
@@ -28,18 +25,41 @@ function candidatePrefixes(srcDir) {
       versions = fs.readdirSync(pyRoot).filter((name) => /^Python\d+$/.test(name));
     } catch (_) {}
     for (const version of versions) {
-      const exe = path.join(pyRoot, version, 'Scripts', 'loopx.exe');
-      if (fs.existsSync(exe)) list.push({ argv: [exe] });
+      const exe = path.join(pyRoot, version, 'python.exe');
+      if (fs.existsSync(exe)) list.push(exe);
     }
   }
+  return list;
+}
+
+function candidatePrefixes(srcDir) {
+  const list = [
+    { argv: ['loopx'] },
+    { argv: ['python', '-m', 'loopx.cli'] },
+    { argv: ['py', '-3', '-m', 'loopx.cli'] },
+  ];
+  for (const exe of absolutePythonExes()) {
+    const loopxExe = path.join(path.dirname(exe), 'Scripts', 'loopx.exe');
+    if (fs.existsSync(loopxExe)) list.push({ argv: [loopxExe] });
+  }
   if (srcDir && fs.existsSync(path.join(srcDir, 'loopx', 'cli.py'))) {
+    // loopx has zero runtime dependencies (pure stdlib, Python >= 3.11), so a
+    // source checkout runs directly via PYTHONPATH — no pip install needed.
     list.push({ argv: ['python', '-m', 'loopx.cli'], env: { PYTHONPATH: srcDir } });
     list.push({ argv: ['py', '-3', '-m', 'loopx.cli'], env: { PYTHONPATH: srcDir } });
+    for (const exe of absolutePythonExes()) {
+      list.push({ argv: [exe, '-m', 'loopx.cli'], env: { PYTHONPATH: srcDir } });
+    }
   }
   return list;
 }
 
 const DEFAULT_TIMEOUT_MS = 180000;
+
+// PR identity markers — the countability contract: every PR created by this
+// tool carries both keywords, searchable on GitHub with `"bitfun-loopx" in:title`.
+const PR_TITLE_PREFIX = '[bitfun-loopx] ';
+const PR_BODY_MARKER = 'Created by BitFun LoopX Console (bitfun-loopx).';
 
 // ── debug trace (worker side) ─────────────────────────────────
 // Written to <appdir>/debug-worker.log so host logs are not required.
@@ -240,6 +260,94 @@ function cloneTargetDir(repo) {
   return path.join(cloneCacheRoot(), safe);
 }
 
+// ── loopx vendor copy (universal acquisition) ──────────────
+// loopx has zero runtime dependencies (pure stdlib, requires Python >= 3.11),
+// so a source checkout under the user's stable .bitfun directory runs directly
+// via `python -m loopx.cli` + PYTHONPATH — no pip, no global install. Same
+// stability rationale as the clone cache: re-importing the MiniApp must never
+// wipe it, and a fresh import can rediscover it.
+const LOOPX_REPO_URL = 'https://github.com/huangruiteng/loopx.git';
+// Version pin for the vendored checkout. loopx's CLI JSON contract IS this
+// app's interface surface (AGENTS.md §1): pulling latest main risks semantic
+// drift. Move this pin only together with a deliberate contract upgrade of
+// the console (and update the installed-loopx expectations at the same time).
+const LOOPX_VENDOR_REF = 'v0.2.13';
+const LOOPX_MIN_PYTHON = { major: 3, minor: 11 };
+
+function vendorLoopxDir() {
+  return path.join(os.homedir(), '.bitfun', 'loopx-console', 'vendor', 'loopx');
+}
+
+function parsePythonVersion(text) {
+  const m = String(text).match(/Python\s+(\d+)\.(\d+)/);
+  if (!m) return null;
+  return {
+    major: Number(m[1]),
+    minor: Number(m[2]),
+    raw: String(text).trim().split(/\r?\n/)[0] || '',
+  };
+}
+
+function pythonMeetsMinimum(version) {
+  return !!(
+    version
+    && (version.major > LOOPX_MIN_PYTHON.major
+      || (version.major === LOOPX_MIN_PYTHON.major && version.minor >= LOOPX_MIN_PYTHON.minor))
+  );
+}
+
+// First interpreter that passes the version gate wins; otherwise report the
+// first interpreter found at all so the UI can say "Python 3.9 detected,
+// 3.11+ required" instead of a bare "not found".
+async function probePython() {
+  const attempts = [
+    ...absolutePythonExes().map((exe) => ({ prefix: [exe], args: ['--version'] })),
+    { prefix: ['python'], args: ['--version'] },
+    { prefix: ['py', '-3'], args: ['--version'] },
+  ];
+  let firstFound = null;
+  for (const attempt of attempts) {
+    let info;
+    try {
+      const { code, stdout, stderr } = await spawnLoopx({ argv: attempt.prefix }, attempt.args, { timeoutMs: 8000 });
+      const version = parsePythonVersion(stdout + stderr);
+      info = { found: code === 0 && !!version, version: version ? version.raw : null, ok: code === 0 && pythonMeetsMinimum(version) };
+    } catch (_) {
+      info = { found: false, version: null, ok: false };
+    }
+    if (info.ok) return { ...info, exe: attempt.prefix.join(' ') };
+    if (!firstFound && info.found) firstFound = { ...info, exe: attempt.prefix.join(' ') };
+  }
+  return firstFound || { found: false, version: null, ok: false, exe: null };
+}
+
+async function probeGit() {
+  try {
+    const { code, stdout, stderr } = await spawnLoopx({ argv: ['git'] }, ['--version'], { timeoutMs: 8000 });
+    return { found: code === 0, version: (stdout + stderr).trim().split(/\r?\n/)[0] || null };
+  } catch (_) {
+    return { found: false, version: null };
+  }
+}
+
+function prereqErrorMessage(prereqs) {
+  const missing = [];
+  const python = prereqs && prereqs.python;
+  if (!python || !python.ok) {
+    missing.push(python && python.found && python.version
+      ? `Python ${python.version} is too old (>= ${LOOPX_MIN_PYTHON.major}.${LOOPX_MIN_PYTHON.minor} required)`
+      : 'Python >= 3.11 not found');
+  }
+  if (!prereqs || !prereqs.git || !prereqs.git.found) missing.push('git not found');
+  return `missing prerequisites: ${missing.join(', ')}`;
+}
+
+async function checkPrereqs() {
+  const python = await probePython();
+  const git = await probeGit();
+  return { ready: !!(python.ok && git.found), python, git };
+}
+
 // ── commit marker ──────────────────────────────────────────
 // Every commit the agent makes inside a console-managed clone carries the
 // bitfun-loopx co-author trailer, so the tool's commits are countable on
@@ -378,20 +486,7 @@ async function detectLoopx(customPrefix, srcDir = null) {
 
 // Absolute python.exe locations (robust against a restricted worker PATH).
 function pythonCandidates() {
-  const list = [];
-  const localAppData = process.env.LOCALAPPDATA;
-  if (localAppData) {
-    const pyRoot = path.join(localAppData, 'Programs', 'Python');
-    let versions = [];
-    try {
-      versions = fs.readdirSync(pyRoot).filter((name) => /^Python\d+$/.test(name));
-    } catch (_) {}
-    for (const version of versions) {
-      const exe = path.join(pyRoot, version, 'python.exe');
-      if (fs.existsSync(exe)) list.push(exe);
-    }
-  }
-  return list;
+  return absolutePythonExes();
 }
 
 function resolveRegistryPath(projectDir) {  if (projectDir) return path.join(projectDir, '.loopx', 'registry.json');
@@ -807,23 +902,175 @@ function gitRun(projectDir, args, timeoutMs = 60000) {
 // reuses the local GitHub CLI credentials. Do the same here: when the user
 // has run `gh auth login` on this machine, publish can authenticate without
 // a pasted PAT.
+function ghExeCandidates() {
+  const list = [];
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) list.push(path.join(localAppData, 'Programs', 'GitHub CLI', 'gh.exe'));
+  list.push('gh');
+  return list;
+}
+
+// gh is not on PATH right after a fresh winget install (the worker's PATH is
+// fixed at spawn time), so resolve the exe explicitly and reuse it everywhere.
+async function findGhExe() {
+  for (const candidate of ghExeCandidates()) {
+    if (candidate === 'gh') {
+      try {
+        const probe = await spawnLoopx({ argv: ['gh'] }, ['--version'], { timeoutMs: 8000 });
+        if (probe.code === 0) return 'gh';
+      } catch (_) { /* fall through to absolute paths */ }
+    } else if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 function ghCliToken() {
   return new Promise((resolve) => {
-    const child = spawn('gh', ['auth', 'token'], { windowsHide: true });
-    let stdout = '';
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (d) => { stdout += d; });
-    const timer = setTimeout(() => {
-      try { child.kill(); } catch (_) {}
-      resolve(null);
-    }, 10000);
-    child.on('error', () => { clearTimeout(timer); resolve(null); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      const token = stdout.trim();
-      resolve(code === 0 && token ? token : null);
+    findGhExe().then((gh) => {
+      if (!gh) { resolve(null); return; }
+      const child = spawn(gh, ['auth', 'token'], { windowsHide: true });
+      let stdout = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (d) => { stdout += d; });
+      const timer = setTimeout(() => {
+        try { child.kill(); } catch (_) {}
+        resolve(null);
+      }, 10000);
+      child.on('error', () => { clearTimeout(timer); resolve(null); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        const token = stdout.trim();
+        resolve(code === 0 && token ? token : null);
+      });
     });
   });
+}
+
+// Windows system proxy (WinINET). gh and winget honor it when network is
+// otherwise restricted; surfaced in the login progress so the user knows the
+// download is going through their configured proxy.
+function readWindowsSystemProxy() {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings', '/v', 'ProxyServer'], { windowsHide: true });
+      let out = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (d) => { out += d; });
+      child.on('error', () => resolve(null));
+      child.on('close', () => {
+        const m = out.match(/ProxyServer\s+REG_SZ\s+([^\r\n]+)/i);
+        resolve(m ? m[1].trim() : null);
+      });
+    } catch (_) { resolve(null); }
+  });
+}
+
+function proxyUrlFrom(value) {
+  if (!value) return null;
+  // Multi-protocol forms like "http=127.0.0.1:7890;https=127.0.0.1:7890"
+  const first = String(value).split(';')[0].replace(/^[a-z]+=/, '').trim();
+  if (!first) return null;
+  return /^https?:\/\//i.test(first) ? first : `http://${first}`;
+}
+
+// winget is not guaranteed to exist (App Installer is absent on some
+// machines); resolve it by absolute candidates and fall back to the PATH.
+function wingetCandidates() {
+  const list = [];
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) {
+    list.push(path.join(localAppData, 'Microsoft', 'WindowsApps', 'winget.exe'));
+    list.push(path.join(localAppData, 'Microsoft', 'WinGet', 'Links', 'winget.exe'));
+  }
+  list.push('winget');
+  return list;
+}
+
+async function findWinget() {
+  for (const candidate of wingetCandidates()) {
+    if (candidate === 'winget') {
+      try {
+        const probe = await spawnLoopx({ argv: ['winget'] }, ['--version'], { timeoutMs: 8000 });
+        if (probe.code === 0) return 'winget';
+      } catch (_) { /* fall through */ }
+    } else if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function powershellExe() {
+  const sys = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+  return fs.existsSync(sys) ? sys : 'powershell';
+}
+
+// Fallback installer without winget: download the gh release zip through
+// PowerShell's Invoke-WebRequest (which honors the system proxy) and place
+// gh.exe into the standard user dir that findGhExe already scans.
+async function installGhViaZip(emit) {
+  emit('未找到 winget，改为直接下载 GitHub CLI 安装包（自动使用系统代理）…');
+  let url = null;
+  try {
+    const release = await githubApiRequest('/repos/cli/cli/releases/latest');
+    const asset = release && Array.isArray(release.assets)
+      ? release.assets.find((a) => a && /windows_amd64\.zip$/i.test(String(a.browser_download_url || '')))
+      : null;
+    url = asset ? asset.browser_download_url : null;
+  } catch (_) { /* fall through to the error below */ }
+  if (!url) {
+    throw new Error('无法获取 GitHub CLI 最新版本信息。请手动安装：https://github.com/cli/cli/releases（下载 windows_amd64.zip 并解压）');
+  }
+  const dst = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'Programs', 'GitHub CLI');
+  const tmpZip = path.join(os.tmpdir(), `gh-install-${Date.now()}.zip`);
+  const expandDir = path.join(os.tmpdir(), `gh-extract-${Date.now()}`);
+  try {
+    emit(`下载 ${url.slice(0, 120)} …`);
+    const ps = `[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${url}' -OutFile '${tmpZip}' -UseBasicParsing`;
+    const dl = await spawnLoopx(
+      { argv: [powershellExe()] },
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps],
+      { timeoutMs: 300000, onStderrLine: (line) => emit(String(line).slice(0, 140)) },
+    );
+    if (dl.code !== 0 || !fs.existsSync(tmpZip)) throw new Error('下载失败');
+    emit('下载完成，正在解压…');
+    fs.mkdirSync(dst, { recursive: true });
+    const ex = await spawnLoopx(
+      { argv: [powershellExe()] },
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `Expand-Archive -Path '${tmpZip}' -DestinationPath '${expandDir}' -Force`],
+      { timeoutMs: 120000, onStderrLine: (line) => emit(String(line).slice(0, 140)) },
+    );
+    if (ex.code !== 0) throw new Error('解压失败');
+    // zip layout: <dir>/gh_<version>_windows_amd64/bin/gh.exe
+    let ghBin = null;
+    for (const entry of fs.readdirSync(expandDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(expandDir, entry.name, 'bin', 'gh.exe');
+      if (fs.existsSync(candidate)) { ghBin = candidate; break; }
+    }
+    if (!ghBin) throw new Error('安装包内未找到 gh.exe');
+    fs.copyFileSync(ghBin, path.join(dst, 'gh.exe'));
+    emit('GitHub CLI 安装完成');
+  } catch (err) {
+    throw new Error(`直接安装失败：${String(err.message || err)}。可手动安装：https://github.com/cli/cli/releases`);
+  } finally {
+    try { fs.rmSync(tmpZip, { force: true }); } catch (_) {}
+    try { fs.rmSync(expandDir, { recursive: true, force: true }); } catch (_) {}
+  }
+}
+
+// Issue bodies frequently carry the real problem in screenshots. Detect image
+// references (markdown images, <img> tags, GitHub attachment URLs) so the UI
+// can be conservative with text-only models.
+function bodyHasImages(body) {
+  const s = String(body || '');
+  if (!s) return false;
+  if (/!\[[^\]]*\]\([^)]*\)/i.test(s)) return true;
+  if (/<img\b/i.test(s)) return true;
+  if (/user[-_](images|attachments)\.githubusercontent\.com|github\.com\/user-attachments\/assets/i.test(s)) return true;
+  return false;
 }
 
 async function fetchOpenIssues(repo) {
@@ -842,6 +1089,7 @@ async function fetchOpenIssues(repo) {
         labels: (item.labels || []).map((l) => (typeof l === 'string' ? l : l && l.name)).filter(Boolean),
         comments: item.comments ?? 0,
         updatedAt: item.updated_at || null,
+        hasImages: bodyHasImages(item.body),
       });
     }
     if (batch.length < 100) return { issues, truncated: false };
@@ -889,6 +1137,83 @@ module.exports = {
       emit(`failed: ${lastError.slice(0, 140)}`);
     }
     return { ok: false, error: lastError || 'pip install failed' };
+  },
+
+  // Prerequisite probe for the universal acquisition path. loopx itself has no
+  // runtime dependencies, but running it from source needs a Python >= 3.11
+  // interpreter and fetching the source needs git. Reported per-item so the UI
+  // can name exactly what is missing (never a silent failure).
+  async 'loopx.checkPrereqs'({} = {}) {
+    const python = await probePython();
+    const git = await probeGit();
+    return { ready: !!(python.ok && git.found), python, git };
+  },
+
+  // One-click vendor: clone (or re-pin) the loopx source checkout into
+  // ~/.bitfun/loopx-console/vendor/loopx at the known-good version
+  // LOOPX_VENDOR_REF and run it straight from there via
+  // `python -m loopx.cli` + PYTHONPATH. No pip, no global install. Progress
+  // streams through vendorLoopx:progress events.
+  async 'loopx.ensureVendor'({} = {}) {
+    const emit = (line) => global.rpcEmit('vendorLoopx:progress', { line });
+    const prereqs = await checkPrereqs();
+    if (!prereqs.ready) {
+      return { ok: false, stage: 'prereqs', prereqs, error: prereqErrorMessage(prereqs) };
+    }
+    const dir = vendorLoopxDir();
+    const gitEnv = { GIT_TERMINAL_PROMPT: '0' };
+    try {
+      if (!fs.existsSync(path.join(dir, 'loopx', 'cli.py'))) {
+        emit(`$ git clone --depth 1 --branch ${LOOPX_VENDOR_REF} ${LOOPX_REPO_URL} "${dir}"`);
+        const clone = await spawnLoopx(
+          { argv: ['git'], env: gitEnv },
+          ['clone', '--depth', '1', '--branch', LOOPX_VENDOR_REF, LOOPX_REPO_URL, dir],
+          { timeoutMs: 300000, onStderrLine: (line) => emit(String(line).slice(0, 140)) },
+        );
+        if (clone.code !== 0) {
+          throw new Error(clone.stderr.trim().slice(-200) || `git clone failed (exit ${clone.code})`);
+        }
+      } else {
+        // Existing checkout: re-pin to LOOPX_VENDOR_REF best-effort (offline
+        // keeps the current copy; the pin heals on a later successful run).
+        emit(`$ git -C "${dir}" fetch --depth 1 origin tag ${LOOPX_VENDOR_REF}`);
+        try {
+          await spawnLoopx(
+            { argv: ['git'], env: gitEnv },
+            ['-C', dir, 'fetch', '--depth', '1', 'origin', 'tag', LOOPX_VENDOR_REF],
+            { timeoutMs: 120000, onStderrLine: (line) => emit(String(line).slice(0, 140)) },
+          );
+          await spawnLoopx(
+            { argv: ['git'], env: gitEnv },
+            ['-C', dir, '-c', 'advice.detachedHead=false', 'checkout', '--force', LOOPX_VENDOR_REF],
+            { timeoutMs: 60000, onStderrLine: (line) => emit(String(line).slice(0, 140)) },
+          );
+        } catch (_) { /* stale checkout stays usable */ }
+      }
+      const detected = await detectLoopx(null, dir);
+      if (detected.found) {
+        cachedPrefix = detected.argvPrefix;
+        return {
+          ok: true,
+          found: true,
+          version: detected.version,
+          srcDir: dir,
+          argvPrefix: detected.argvPrefix,
+          prereqs,
+        };
+      }
+      const detail = (detected.probes || [])
+        .map((p) => `${(p.argvPrefix || []).join(' ')} → ${p.ok ? p.version : p.error || 'failed'}`)
+        .join('\n');
+      return {
+        ok: false,
+        stage: 'detect',
+        prereqs,
+        error: `loopx source fetched but not runnable (Python >= 3.11 required):\n${detail}`,
+      };
+    } catch (err) {
+      return { ok: false, stage: 'clone', prereqs, error: String(err.message || err) };
+    }
   },
 
   async 'loopx.doctor'({ argvPrefix = null, projectDir = null } = {}) {
@@ -1124,7 +1449,19 @@ module.exports = {
     }
     let issues = issueRefs.filter((ref) => ref.kind === 'issue').map((ref) => ({
       number: ref.number, title: `#${ref.number}`, url: ref.url, fromList: false,
+      hasImages: false,
     }));
+    // Single-issue intake: fetch the body so the sheet can warn about images
+    // that a text-only model cannot see (bounded to a handful of links to
+    // stay inside the anonymous rate limit).
+    if (issues.length > 0 && issues.length <= 5) {
+      await Promise.all(issues.map(async (issue) => {
+        try {
+          const detail = await githubApiGet(`/repos/${refs[0].repo}/issues/${issue.number}`);
+          if (detail && typeof detail.body === 'string') issue.hasImages = bodyHasImages(detail.body);
+        } catch (_) { /* conservative: keep false */ }
+      }));
+    }
     let kind = issueRefs.length ? (issueRefs.length > 1 ? 'issues' : 'issue') : 'repository';
     let truncated = false;
     // Both an explicit issues-list URL and a bare repository URL mean "the
@@ -1237,6 +1574,26 @@ module.exports = {
     } catch (err) {
       dbgWorker('deleteGoal:runtimeMoveError', `${err.message}`);
     }
+    // Archived runtimes live under archived-goals/<goalId>-<stamp> and are
+    // re-listed by listGoals — deleting an ALREADY-archived goal must move
+    // those aside too, or the goal resurrects on the next refresh and the UI
+    // dropdown never updates. Rename (never delete) per the backup discipline.
+    try {
+      const archiveRoot = path.join(os.homedir(), '.codex', 'loopx', 'archived-goals');
+      if (fs.existsSync(archiveRoot)) {
+        for (const entry of fs.readdirSync(archiveRoot, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const m = entry.name.match(/^(bfx-.*)-(\d{8}T\d{6}Z)$/);
+          if (!m || m[1] !== goalId) continue;
+          const src = path.join(archiveRoot, entry.name);
+          const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+          fs.renameSync(src, path.join(archiveRoot, `${entry.name}.del-bak-${stamp}`));
+          dbgWorker('deleteGoal:archiveMoved', src);
+        }
+      }
+    } catch (err) {
+      dbgWorker('deleteGoal:archiveMoveError', `${err.message}`);
+    }
     dbgWorker('deleteGoal:done', `archived=${archived} registryRemoved=${registryRemoved}`);
     return {
       ok: true,
@@ -1329,6 +1686,92 @@ module.exports = {
     return { ok: result.code === 0, todos, error: result.code === 0 ? null : result.stderr.slice(0, 300) };
   },
 
+  // Per-goal issue tracker: batch intake writes one agent todo per issue
+  // ("[P1] Fix GitHub issue #N: <title> (<url>)", action_kind=fix_issue), so
+  // the goal's issue list + per-issue status is a projection over those todos.
+  // Returns the structured board the card strip renders: url/number/title and
+  // the todo status (open / blocked / deferred / done).
+  async 'loopx.goalIssues'({ argvPrefix = null, projectDir = null, goalId } = {}) {
+    if (!goalId) throw new Error('loopx.goalIssues: goalId is required');
+    const { result, payload } = await runJson(argvPrefix, projectDir, ['todo', 'list', '--goal-id', goalId]);
+    const todos = (payload && payload.todos) || [];
+    const issues = [];
+    for (const td of todos) {
+      if (td.role && td.role !== 'agent') continue;
+      const text = String(td.text || td.title || '');
+      const labeled = text.match(/fix github issue #(\d+)\s*[:：]?\s*(.*?)\s*\((https?:\/\/github\.com\/[^\s)]+)\)/i);
+      if (!labeled && td.action_kind !== 'fix_issue') continue;
+      let url = null;
+      let number = null;
+      let title = '';
+      if (labeled) {
+        number = Number(labeled[1]);
+        title = labeled[2] || '';
+        url = labeled[3];
+      } else {
+        const bare = text.match(/https?:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/(?:issues|pull)\/(\d+)/i);
+        if (!bare) continue;
+        url = bare[0];
+        number = Number(bare[1]);
+      }
+      const status = td.status || 'open';
+      issues.push({
+        url,
+        number,
+        title,
+        status,
+        done: status === 'done',
+        todoId: td.todo_id ?? null,
+      });
+    }
+    const done = issues.filter((issue) => issue.done).length;
+    return {
+      ok: result.code === 0,
+      issues,
+      total: issues.length,
+      done,
+      open: issues.length - done,
+      error: result.code === 0 ? null : result.stderr.slice(0, 300),
+    };
+  },
+
+  // Commit subjects for a branch — feeds the PR "解决方案" section and the
+  // publish-time cause/solution analysis prompt.
+  async 'loopx.gitLog'({ projectDir = null, branch = null, limit = 15 } = {}) {
+    if (!projectDir) throw new Error('loopx.gitLog: projectDir is required');
+    const args = ['log', `-${Math.min(Math.max(Number(limit) || 15, 1), 30)}`, '--no-merges', '--pretty=format:%s'];
+    if (branch) args.push(branch);
+    const log = await gitRun(projectDir, args, 30000);
+    return {
+      ok: true,
+      subjects: String(log.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+    };
+  },
+
+  // Changed files of a branch (merge-base..branch) — feeds the PR "涉及文件"
+  // section and makes the generated solution concrete about WHAT was touched.
+  async 'loopx.gitDiff'({ projectDir = null, branch = null } = {}) {
+    if (!projectDir) throw new Error('loopx.gitDiff: projectDir is required');
+    const target = branch || 'HEAD';
+    let range = null;
+    for (const ref of ['master', 'main', 'origin/master', 'origin/main']) {
+      try {
+        const mb = await gitRun(projectDir, ['merge-base', ref, target], 20000);
+        const sha = String(mb.stdout || '').trim();
+        if (sha) { range = `${sha}..${target}`; break; }
+      } catch (_) { /* try the next base ref */ }
+    }
+    const effective = range || target;
+    const names = await gitRun(projectDir, ['diff', '--name-only', effective], 30000);
+    const stat = await gitRun(projectDir, ['diff', '--shortstat', effective], 30000);
+    return {
+      ok: true,
+      range,
+      files: String(names.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+      stat: String(stat.stdout || '').trim() || null,
+    };
+  },
+
   // Complete (approve) one todo by id — the console's gate-approval action.
   // user_gate todos hard-require --decision-outcome (approve/reject/cancel);
   // the CLI rejects the flag on other task classes, so pass it conditionally.
@@ -1353,12 +1796,91 @@ module.exports = {
     return { ok: true, login: user && user.login ? user.login : null };
   },
 
+  // One-click GitHub CLI login: install gh via winget when missing (honoring
+  // the system proxy), then launch `gh auth login --web` in its own console
+  // window — gh prints a one-time code there and opens the browser. The
+  // worker polls `gh auth status` until the browser flow completes.
+  // Progress streams through ghLogin:progress events.
+  async 'loopx.ghLogin'({} = {}) {
+    const emit = (line) => global.rpcEmit('ghLogin:progress', { line });
+    const proxyUrl = proxyUrlFrom(await readWindowsSystemProxy());
+    const envOverlay = proxyUrl ? { HTTPS_PROXY: proxyUrl, HTTP_PROXY: proxyUrl } : undefined;
+    let gh = await findGhExe();
+    if (!gh) {
+      emit('GitHub CLI 未安装，正在安装…');
+      if (proxyUrl) emit(`检测到系统代理：${proxyUrl}（安装将经此代理下载）`);
+      const winget = await findWinget();
+      if (winget) {
+        emit(`通过 winget（${winget}）安装…`);
+        try {
+          const install = await spawnLoopx(
+            { argv: [winget], env: envOverlay },
+            ['install', '--id', 'GitHub.cli', '-e', '--accept-source-agreements', '--accept-package-agreements'],
+            { timeoutMs: 600000, onStderrLine: (line) => emit(String(line).slice(0, 140)) },
+          );
+          if (install.code !== 0) {
+            throw new Error(String(install.stderr || install.stdout || '').trim().slice(-200) || `winget exit ${install.code}`);
+          }
+        } catch (err) {
+          return {
+            ok: false,
+            error: `安装 GitHub CLI 失败：${String(err.message || err)}。可手动安装后再试：https://github.com/cli/cli/releases`,
+          };
+        }
+        gh = await findGhExe();
+      } else {
+        // No winget on this machine: download the release zip directly.
+        try {
+          await installGhViaZip(emit);
+        } catch (err) {
+          return { ok: false, error: String(err.message || err) };
+        }
+        gh = await findGhExe();
+      }
+      if (!gh) return { ok: false, error: '安装完成但未找到 gh.exe，请重开控制台后重试' };
+    }
+    emit(`已找到 ${gh}。启动浏览器登录（弹出窗口会显示一次性代码，浏览器确认后自动完成）…`);
+    // gh's web flow needs a TTY; give it its own console window so the
+    // one-time code is visible and the prompts work. cmd start returns
+    // immediately; we poll auth status below.
+    try {
+      const launcher = spawn('cmd', [
+        '/c', 'start', '', gh, 'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web',
+      ], { windowsHide: false, detached: true, stdio: 'ignore' });
+      launcher.on('error', () => {});
+    } catch (_) { /* the poll below reports the real outcome */ }
+    const deadline = Date.now() + 8 * 60000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      try {
+        const status = await spawnLoopx({ argv: [gh], env: envOverlay }, ['auth', 'status'], { timeoutMs: 15000 });
+        if (status.code === 0) {
+          let login = null;
+          try {
+            const user = await spawnLoopx({ argv: [gh], env: envOverlay }, ['api', 'user', '-q', '.login'], { timeoutMs: 20000 });
+            if (user.code === 0) login = String(user.stdout || '').trim() || null;
+          } catch (_) {}
+          emit(`登录完成${login ? `：${login}` : ''}`);
+          return { ok: true, login };
+        }
+      } catch (_) { /* still waiting */ }
+    }
+    return {
+      ok: false,
+      error: '等待浏览器登录超时（8 分钟）。请在弹出的窗口确认登录后重试，或改用方式二粘贴 Token。',
+    };
+  },
+
   // Publish the current fix branch as a PR through the user's fork: ensure
   // the fork exists (create it when missing), push the branch, then open a
-  // pull request against the upstream default branch. The UI composes the
-  // [bitfun-loopx] marked title/body so the tool's PRs stay countable.
+  // pull request against the upstream default branch. When issueUrl is given,
+  // the PR is composed properly: title binds the issue, body links the issue
+  // with a one-line description, an analysis of the cause and the solution
+  // (generated by the UI and passed as `analysis`), and the branch's commit
+  // subjects — all tagged [bitfun-loopx] for countability.
   async 'loopx.publishPr'({
     projectDir = null, goalId = null, token = null, title = '', body = '', branch: requestedBranch = null,
+    issueUrl = null, analysis = null,
   } = {}) {
     if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
     if (!token) {
@@ -1367,7 +1889,7 @@ module.exports = {
       token = await ghCliToken();
       if (!token) throw new Error('loopx.publishPr: token is required (configure one in the console, or run gh auth login)');
     }
-    dbgWorker('publishPr:start', `goalId=${goalId || ''} branch=${requestedBranch || ''}`);
+    dbgWorker('publishPr:start', `goalId=${goalId || ''} branch=${requestedBranch || ''} issueUrl=${issueUrl || ''}`);
     let branch = (await gitRun(projectDir, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
     if (!branch || branch === 'HEAD') throw new Error('publishPr: the checkout is in detached HEAD state');
     // Prefer the branch named by the gate item; keep HEAD when unknown.
@@ -1387,6 +1909,34 @@ module.exports = {
     const user = await githubApiRequest('/user', { token });
     const login = String((user && user.login) || '').trim();
     if (!login) throw new Error('publishPr: GitHub token did not resolve a login');
+
+    // ── PR content composition: bind the issue, describe the problem and the
+    // changes. The UI's title/body stay as the fallback for non-issue goals.
+    let finalTitle = title;
+    let finalBody = body;
+    let composedSections = null; // sections with a __COMMITS__ slot
+    let composedSolution = null;
+    const issueMatch = String(issueUrl || '').match(/\/(?:issues|pull)\/(\d+)/);
+    if (issueMatch) {
+      const issueNumber = Number(issueMatch[1]);
+      let issueInfo = null;
+      try {
+        issueInfo = await githubApiRequest(`/repos/${owner}/${repo}/issues/${issueNumber}`, { token });
+      } catch (_) { /* compose without the live issue body */ }
+      const issueTitle = (issueInfo && issueInfo.title) || '';
+      const titleSuffix = issueTitle
+        ? `Fix #${issueNumber}: ${String(issueTitle).slice(0, 80)}`
+        : `Fix #${issueNumber}`;
+      finalTitle = `${PR_TITLE_PREFIX}${titleSuffix}`;
+      composedSections = [
+        `Fixes #${issueNumber}`,
+        `## 相关 Issue\n\nhttps://github.com/${owner}/${repo}/issues/${issueNumber}${issueTitle ? ` — ${issueTitle}` : ''}`,
+      ];
+      const cause = analysis && typeof analysis.cause === 'string' && analysis.cause.trim() ? analysis.cause.trim() : null;
+      composedSolution = analysis && typeof analysis.solution === 'string' && analysis.solution.trim() ? analysis.solution.trim() : null;
+      if (cause) composedSections.push(`## 问题原因\n\n${cause}`);
+      composedSections.push('__COMMITS__', PR_BODY_MARKER);
+    }
 
     // Fork: reuse an existing fork; create and wait when absent.
     let fork = await githubApiRequest(`/repos/${login}/${repo}`, { token, allow404: true });
@@ -1414,11 +1964,49 @@ module.exports = {
     // Open the PR against the upstream default branch.
     const upstream = await githubApiRequest(`/repos/${owner}/${repo}`, { token });
     const base = (upstream && upstream.default_branch) || 'main';
+    if (composedSections) {
+      // Only the branch's OWN commits (merge-base..HEAD): a raw `git log -15
+      // HEAD` drags in unrelated upstream history (docs/ci commits inherited
+      // from main) and buries the actual fix under noise.
+      let subjects = [];
+      let changedFiles = [];
+      let statLine = '';
+      try {
+        let range = null;
+        for (const ref of [base, `origin/${base}`, 'main', 'master']) {
+          try {
+            const mb = await gitRun(projectDir, ['merge-base', ref, 'HEAD'], 20000);
+            const sha = String(mb.stdout || '').trim();
+            if (sha) { range = `${sha}..HEAD`; break; }
+          } catch (_) { /* try the next base ref */ }
+        }
+        const log = await gitRun(projectDir, ['log', '-15', '--no-merges', '--pretty=format:%s', range || 'HEAD'], 30000);
+        subjects = String(log.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        if (range) {
+          const names = await gitRun(projectDir, ['diff', '--name-only', range], 30000);
+          changedFiles = String(names.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+          const stat = await gitRun(projectDir, ['diff', '--shortstat', range], 30000);
+          statLine = String(stat.stdout || '').trim();
+        }
+      } catch (_) { /* omit the commit/file list */ }
+      const solutionLine = composedSolution ? `${composedSolution}\n` : '';
+      const commitLines = subjects.map((s) => `- ${s}`).join('\n');
+      const slot = composedSections.indexOf('__COMMITS__');
+      const parts = [];
+      if (solutionLine || commitLines) {
+        parts.push(`## 解决方案\n\n${solutionLine}${commitLines}`.trim());
+      }
+      if (changedFiles.length) {
+        parts.push(`## 涉及文件${statLine ? `（${statLine}）` : ''}\n\n${changedFiles.map((f) => `- ${f}`).join('\n')}`);
+      }
+      composedSections[slot] = parts.join('\n\n');
+      finalBody = composedSections.filter(Boolean).join('\n\n');
+    }
     let pr;
     try {
       pr = await githubApiRequest(`/repos/${owner}/${repo}/pulls`, {
         token, method: 'POST',
-        jsonBody: { title, head: `${login}:${branch}`, base, body },
+        jsonBody: { title: finalTitle, head: `${login}:${branch}`, base, body: finalBody },
       });
     } catch (err) {
       // A PR for this branch may already exist (publish retry): reuse it.
@@ -1908,6 +2496,15 @@ module.exports = {
         error: payload?.error || result.stderr.trim() || 'heartbeat-prompt produced no task body',
       };
     }
-    return { ok: true, prompt: turnPreamble({ projectDir, goalId, agentId }) + body };
+    // loopx's prompt vocabulary is codex-lineage ("codex" = its label for the
+    // agent execution lane; in outer_controller mode that lane IS the BitFun
+    // host agent). Strip the one codex-specific instruction so the BitFun
+    // agent never reads a reference to a "Codex session" it does not have —
+    // keep the intent (do not re-ask granted permissions) in host terms.
+    const sanitized = body.replace(
+      /\bDo not ask for permissions when the current Codex session is already trusted\./g,
+      'Do not re-ask for permissions BitFun has already granted in this session.',
+    );
+    return { ok: true, prompt: turnPreamble({ projectDir, goalId, agentId }) + sanitized };
   },
 };

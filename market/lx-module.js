@@ -330,6 +330,12 @@
           labels: (item.labels || []).map((l) => (typeof l === 'string' ? l : l && l.name)).filter(Boolean),
           comments: item.comments ?? 0,
           updatedAt: item.updated_at || null,
+          hasImages: (() => {
+            const s = String(item.body || '');
+            if (!s) return false;
+            return /!\[[^\]]*\]\([^)]*\)/i.test(s) || /<img\b/i.test(s)
+              || /user[-_](images|attachments)\.githubusercontent\.com|github\.com\/user-attachments\/assets/i.test(s);
+          })(),
         });
       }
       if (batch.length < 100) return { issues, truncated: false };
@@ -514,6 +520,20 @@
       return {
         ok: false,
         error: 'market sandbox forbids pip — run: pip install git+https://github.com/huangruiteng/loopx.git in your own terminal',
+      };
+    },
+
+    async 'loopx.checkPrereqs'() {
+      // Market edition cannot run interpreters, so the vendor-source path is
+      // unusable regardless of what is installed. Report market mode and let
+      // the shared UI keep the pip guidance path (installLoopx above).
+      return { ready: false, market: true, python: null, git: null };
+    },
+
+    async 'loopx.ensureVendor'() {
+      return {
+        ok: false,
+        error: 'market sandbox forbids interpreters — install loopx yourself: pip install git+https://github.com/huangruiteng/loopx.git in your own terminal',
       };
     },
 
@@ -811,6 +831,85 @@
       return { ok: code === 0, todos, error: code === 0 ? null : stderr.slice(0, 300) };
     },
 
+    async 'loopx.goalIssues'({ projectDir = null, goalId } = {}) {
+      if (!goalId) throw new Error('loopx.goalIssues: goalId is required');
+      const { code, payload, stderr } = await runLoopx(projectDir, ['todo', 'list', '--goal-id', goalId], 60000);
+      const todos = (payload && payload.todos) || [];
+      const issues = [];
+      for (const td of todos) {
+        if (td.role && td.role !== 'agent') continue;
+        const text = String(td.text || td.title || '');
+        const labeled = text.match(/fix github issue #(\d+)\s*[:：]?\s*(.*?)\s*\((https?:\/\/github\.com\/[^\s)]+)\)/i);
+        if (!labeled && td.action_kind !== 'fix_issue') continue;
+        let url = null;
+        let number = null;
+        let title = '';
+        if (labeled) {
+          number = Number(labeled[1]);
+          title = labeled[2] || '';
+          url = labeled[3];
+        } else {
+          const bare = text.match(/https?:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/(?:issues|pull)\/(\d+)/i);
+          if (!bare) continue;
+          url = bare[0];
+          number = Number(bare[1]);
+        }
+        const status = td.status || 'open';
+        issues.push({
+          url,
+          number,
+          title,
+          status,
+          done: status === 'done',
+          todoId: td.todo_id ?? null,
+        });
+      }
+      const done = issues.filter((issue) => issue.done).length;
+      return {
+        ok: code === 0,
+        issues,
+        total: issues.length,
+        done,
+        open: issues.length - done,
+        error: code === 0 ? null : stderr.slice(0, 300),
+      };
+    },
+
+    async 'loopx.gitLog'({ projectDir = null, branch = null, limit = 15 } = {}) {
+      if (!projectDir) throw new Error('loopx.gitLog: projectDir is required');
+      const args = ['log', `-${Math.min(Math.max(Number(limit) || 15, 1), 30)}`, '--no-merges', '--pretty=format:%s'];
+      if (branch) args.push(branch);
+      const r = await app.shell.exec({ args: ['git', ...args], timeout: 30000, cwd: projectDir });
+      return {
+        ok: r.exit_code === 0,
+        subjects: r.exit_code === 0
+          ? String(r.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+          : [],
+      };
+    },
+
+    async 'loopx.gitDiff'({ projectDir = null, branch = null } = {}) {
+      if (!projectDir) throw new Error('loopx.gitDiff: projectDir is required');
+      const target = branch || 'HEAD';
+      let range = null;
+      for (const ref of ['master', 'main', 'origin/master', 'origin/main']) {
+        try {
+          const mb = await app.shell.exec({ args: ['git', 'merge-base', ref, target], timeout: 20000, cwd: projectDir });
+          const sha = String(mb.stdout || '').trim();
+          if (mb.exit_code === 0 && sha) { range = `${sha}..${target}`; break; }
+        } catch (_) {}
+      }
+      const effective = range || target;
+      const names = await app.shell.exec({ args: ['git', 'diff', '--name-only', effective], timeout: 30000, cwd: projectDir });
+      const stat = await app.shell.exec({ args: ['git', 'diff', '--shortstat', effective], timeout: 30000, cwd: projectDir });
+      return {
+        ok: true,
+        range,
+        files: String(names.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+        stat: String(stat.stdout || '').trim() || null,
+      };
+    },
+
     async 'loopx.completeTodo'({
       projectDir = null, goalId, todoId, note = null, decisionOutcome = null,
     } = {}) {
@@ -834,11 +933,21 @@
       return { ok: false, token: null };
     },
 
+    async 'loopx.ghLogin'() {
+      // The marketplace shell allowlist has no gh/winget (interpreters and
+      // installers are banned), so the CLI login flow cannot run here.
+      return {
+        ok: false,
+        error: '市场版无法运行 GitHub CLI。请用方式二：到 github.com/settings/personal-access-tokens/new 创建 Fine-grained Token（Contents 与 Pull requests 读写权限）并粘贴保存。',
+      };
+    },
+
     // Publish the current fix branch as a PR through the user's fork. Same
     // protocol as the worker edition; git rides the host shell (argv-only,
     // git is allow-listed), REST rides app.net.fetch.
     async 'loopx.publishPr'({
       projectDir = null, goalId = null, token = null, title = '', body = '', branch: requestedBranch = null,
+      issueUrl = null, analysis = null,
     } = {}) {
       if (!projectDir) throw new Error('loopx.publishPr: projectDir is required');
       if (!token) throw new Error('loopx.publishPr: token is required');
@@ -863,6 +972,28 @@
       const login = String((user && user.login) || '').trim();
       if (!login) throw new Error('publishPr: GitHub token did not resolve a login');
 
+      // ── PR content composition (same contract as the worker edition) ──
+      let finalTitle = title;
+      let finalBody = body;
+      let composedSections = null;
+      let composedSolution = null;
+      const issueMatch = String(issueUrl || '').match(/\/(?:issues|pull)\/(\d+)/);
+      if (issueMatch) {
+        const issueNumber = Number(issueMatch[1]);
+        let issueInfo = null;
+        try { issueInfo = await ghApi(token, `/repos/${owner}/${repo}/issues/${issueNumber}`, 'GET', null, true); } catch (_) {}
+        const issueTitle = (issueInfo && issueInfo.title) || '';
+        finalTitle = `[bitfun-loopx] ${issueTitle ? `Fix #${issueNumber}: ${String(issueTitle).slice(0, 80)}` : `Fix #${issueNumber}`}`;
+        composedSections = [
+          `Fixes #${issueNumber}`,
+          `## 相关 Issue\n\nhttps://github.com/${owner}/${repo}/issues/${issueNumber}${issueTitle ? ` — ${issueTitle}` : ''}`,
+        ];
+        const cause = analysis && typeof analysis.cause === 'string' && analysis.cause.trim() ? analysis.cause.trim() : null;
+        composedSolution = analysis && typeof analysis.solution === 'string' && analysis.solution.trim() ? analysis.solution.trim() : null;
+        if (cause) composedSections.push(`## 问题原因\n\n${cause}`);
+        composedSections.push('__COMMITS__', 'Created by BitFun LoopX Console (bitfun-loopx).');
+      }
+
       let fork = await ghApi(token, `/repos/${login}/${repo}`, 'GET', null, true);
       if (!fork) {
         await ghApi(token, `/repos/${owner}/${repo}/forks`, 'POST', {});
@@ -881,10 +1012,47 @@
 
       const upstream = await ghApi(token, `/repos/${owner}/${repo}`);
       const base = (upstream && upstream.default_branch) || 'main';
+      if (composedSections) {
+        // Only the branch's OWN commits (merge-base..HEAD) — a raw log drags
+        // in unrelated upstream history and buries the actual fix.
+        let subjects = [];
+        let changedFiles = [];
+        let statLine = '';
+        try {
+          let range = null;
+          for (const ref of [base, `origin/${base}`, 'main', 'master']) {
+            try {
+              const mb = await runGit(['merge-base', ref, 'HEAD'], 20000);
+              const sha = String(mb.stdout || '').trim();
+              if (sha && mb.exit_code === 0) { range = `${sha}..HEAD`; break; }
+            } catch (_) {}
+          }
+          const log = await runGit(['log', '-15', '--no-merges', '--pretty=format:%s', range || 'HEAD'], 30000);
+          subjects = String(log.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+          if (range) {
+            const names = await runGit(['diff', '--name-only', range], 30000);
+            changedFiles = String(names.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+            const stat = await runGit(['diff', '--shortstat', range], 30000);
+            statLine = String(stat.stdout || '').trim();
+          }
+        } catch (_) {}
+        const solutionLine = composedSolution ? `${composedSolution}\n` : '';
+        const commitLines = subjects.map((s) => `- ${s}`).join('\n');
+        const slot = composedSections.indexOf('__COMMITS__');
+        const parts = [];
+        if (solutionLine || commitLines) {
+          parts.push(`## 解决方案\n\n${solutionLine}${commitLines}`.trim());
+        }
+        if (changedFiles.length) {
+          parts.push(`## 涉及文件${statLine ? `（${statLine}）` : ''}\n\n${changedFiles.map((f) => `- ${f}`).join('\n')}`);
+        }
+        composedSections[slot] = parts.join('\n\n');
+        finalBody = composedSections.filter(Boolean).join('\n\n');
+      }
       let pr;
       try {
         pr = await ghApi(token, `/repos/${owner}/${repo}/pulls`, 'POST', {
-          title, head: `${login}:${branch}`, base, body,
+          title: finalTitle, head: `${login}:${branch}`, base, body: finalBody,
         });
       } catch (err) {
         const existing = await ghApi(token, `/repos/${owner}/${repo}/pulls?state=open&head=${encodeURIComponent(`${login}:${branch}`)}`);

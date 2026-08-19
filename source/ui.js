@@ -32,8 +32,22 @@ const I18N = {
     refresh: '刷新目标列表',
     retry: '重试',
     notFoundTitle: '未检测到 loopx CLI',
-    notFoundHint: '点击右侧按钮一键安装 loopx；也可以在自己的终端执行 pip install git+https://github.com/huangruiteng/loopx.git（需要 Python 与 git）。',
-    installLoopxBtn: '一键安装 loopx',
+    notFoundHint: '本机未检测到 loopx。可一键拉取 loopx 源码直接运行（无需 pip 安装），或自行 pip 安装。',
+    vendorLoopxBtn: '拉取 loopx 源码',
+    vendoringLoopx: '正在拉取…（首次需联网，约 1 分钟）',
+    vendorDone: '拉取完成',
+    vendorFailed: '拉取失败',
+    prereqNeedPython: '缺少 Python 3.11+（loopx 源码运行需要）。安装后点「重试」：python.org/downloads 或 winget install Python.Python.3.12',
+    prereqNeedGit: '缺少 git（拉取源码需要）。安装后点「重试」：git-scm.com 或 winget install Git.Git',
+    prereqUnknown: '无法探测运行环境（需要 Python 3.11+ 与 git）。也可以在自己的终端执行 pip install git+https://github.com/huangruiteng/loopx.git',
+    issuesProgress: (done, total) => `issues ${done}/${total}`,
+    issueDone: '已修复',
+    issueOpen: '进行中',
+    issueBlocked: '受阻',
+    issueDeferred: '已搁置',
+    issuePending: '待处理',
+    moreIssues: (n) => `+${n}`,
+    installLoopxBtn: 'pip 安装 loopx',
     installingLoopx: '正在安装…（可能需要几分钟）',
     installDone: '安装完成',
     installFailed: '安装失败',
@@ -65,6 +79,7 @@ const I18N = {
     thinkBlockTitle: '思考过程',
     elapsedLabel: (t) => `已用时 ${t}`,
     waitingOn: (w) => `等待：${w}`,
+    waitingAgent: '等待 Agent 执行',
     cancel: '取消',
     needProject: '执行 run-once 需要先选择项目目录',
     needAgent: '该目标没有已注册的 agent，请先填写 agent id',
@@ -97,7 +112,8 @@ const I18N = {
     colSubActive: 'Agent 正在执行',
     detailEmptyHint: '点选「进行中」的条目查看任务详情与实时日志',
     groupDone: '已完成',
-    taskPlaceholder: '粘贴 GitHub Issue / 仓库 / Issues 列表链接，可附加修复要求；任务运行时可直接输入文字向 Agent 插话',
+    taskPlaceholder: '粘贴 GitHub Issue / 仓库 / Issues 列表链接，可附加修复要求',
+    taskGuidePlaceholder: (name) => `正在向「${name}」插话：输入指令引导 Agent 继续（不创建新任务）`,
     taskGoalUnsupported: '请粘贴 GitHub Issue、PR、仓库首页或 Issues 列表链接（自由目标暂未开放）',
     taskUnsupportedPath: (u) => `不支持的 GitHub 链接：${u}。请粘贴 Issue、PR、仓库首页或 Issues 列表链接`,
     guidanceNoRunning: '没有正在运行的任务。粘贴 Issue 链接创建新任务，或等任务开始运行后再输入指令。',
@@ -150,7 +166,6 @@ const I18N = {
     gateTypeInfo: '知会事项',
     gateCardTask: (name) => `任务：${name}`,
     gateItemInfoLabel: (hint) => `知会事项 · ${hint}`,
-    gateRawToggle: '查看原文',
     gateExplainWrite: '需要你批准：授予写权限后，Agent 才能实施修改并提交 PR。',
     gateExplainDecide: '需要你决定：同意或拒绝这项改动。',
     gateExplainPublish: '需要你批准：发布 / 提交 PR。',
@@ -178,11 +193,20 @@ const I18N = {
     approveGateHint: '这是需要你批准的事项：批准后，任务将按该事项继续执行。',
     todoDoneHint: '这是知会/指示类事项：标记完成即可，不需要批准，也不会触发新操作。',
     approveDone: '已批准，任务将继续推进',
+    approveResumed: '批准后任务已恢复自动执行',
     todoDoneFeedback: '已标记完成',
     githubTokenTitle: 'GitHub Token 设置',
     githubTokenExplain: '用于 fork 仓库、推送分支、创建 PR。需要一个 fine-grained Personal Access Token（Repository 读写权限）。Token 仅保存在本机 BitFun 应用存储中，不会上传。如果本机已用 GitHub CLI 登录（gh auth login），发布时会自动复用，无需粘贴 Token。',
     githubTokenPlaceholder: 'ghp_ 或 github_pat_ …',
     githubTokenSave: '保存并验证',
+    ghLoginGuideTitle: '方式一（推荐）：用 GitHub CLI 登录',
+    ghLoginGuide: '点击下方按钮自动安装 GitHub CLI 并弹出浏览器完成登录，无需手动创建 Token（网络受限时会自动使用系统代理）。',
+    ghLoginBtn: '用 GitHub CLI 登录',
+    tokenGuideTitle: '方式二：使用已有的 Token',
+    tokenGuide: '前往 GitHub 创建 Fine-grained Token（需要 Contents 与 Pull requests 的读写权限）：',
+    tokenGuideLink: 'github.com/settings/personal-access-tokens/new',
+    ghLoginDone: (login) => `登录完成：${login}`,
+    ghLoginFailed: '登录失败',
     githubTokenStatus: '当前状态：',
     githubTokenSaved: (user) => `Token 有效，已保存（登录名：${user}）`,
     githubTokenInvalid: 'Token 无效或已过期',
@@ -195,10 +219,17 @@ const I18N = {
     gateCredToken: (login) => `✓ 已配置 GitHub Token（${login}）`,
     gateCredNone: '⚠ 尚未登录 GitHub：提交 PR 前请先完成登录',
     gateCredSetup: '配置 GitHub 登录',
+    gateAfterPublish: '批准后：自动 fork 到你的 GitHub → 推送分支 → 创建 PR（带 [bitfun-loopx] 标记），随后继续剩余 issue',
+    gateAfterApprove: '批准后：任务继续自动执行',
+    sectionTarget: '修复目标',
+    sectionDecision: '需要你决定',
+    sectionProgress: '当前进度',
+    sectionResult: '结果',
     approvePrTitle: '批准并提交 PR？',
     approvePrHint: '批准后控制台将自动：检查/创建你的 fork → 推送修复分支 → 向原仓库创建 PR（标题带 [bitfun-loopx] 标识，可被 GitHub 搜索统计）。',
     approvePrNeedToken: '⚠ 尚未配置 GitHub Token，点击「批准」后将先打开 Token 设置。',
     publishWorking: '正在发布 PR（首次需要 fork 仓库，可能一两分钟）…',
+    publishAnalyzing: '正在分析问题原因与解决方案…',
     publishDone: (url) => `✅ PR 已提交：${url}`,
     publishFailed: 'PR 提交失败',
     publishNeedToken: '发布 PR 需要先配置 GitHub Token',
@@ -236,6 +267,8 @@ const I18N = {
     stageClone: '正在克隆仓库…',
     stageClonePercent: (p) => `正在克隆仓库… ${p}%`,
     intakeCloneNote: (repo) => `将自动克隆 ${repo} 到小应用数据目录并开始修复（无需本地 checkout）。`,
+    issueHasImages: '该 issue 描述包含图片（截图），文字可能不足以定位问题',
+    intakeVisionWarn: (n) => `⚠ 检测到 ${n} 个 issue 的描述包含图片，而当前模型不具备多模态能力：图片里的关键信息可能无法被理解，仅凭文字不一定能确认问题根源。建议先补充文字说明（错误信息、复现步骤等）再创建任务，或改用支持视觉的模型。仍可继续，但修复质量可能受影响。`,
     intakeReuseNote: (repo) => `已找到 ${repo} 的本地 checkout，无需重新克隆。`,
     intakeWriteNote: '本确认即授权：任务将获得仓库写权限并自动连续执行；仅在需要提 PR/发布时才会再次询问你。',
     taskCloneOtherRepo: (expected, actual) => `本地目录绑定的是 ${actual}；将把 ${expected} 克隆到独立目录处理。`,
@@ -262,8 +295,22 @@ const I18N = {
     refresh: 'Refresh goals',
     retry: 'Retry',
     notFoundTitle: 'loopx CLI not found',
-    notFoundHint: 'Install loopx with the button on the right, or run pip install git+https://github.com/huangruiteng/loopx.git in your own terminal (requires Python and git).',
-    installLoopxBtn: 'Install loopx',
+    notFoundHint: 'loopx was not detected on this machine. Fetch its source and run it directly (no pip install), or install it yourself with pip.',
+    vendorLoopxBtn: 'Fetch loopx source',
+    vendoringLoopx: 'Fetching… (first time needs network, ~1 min)',
+    vendorDone: 'Fetch complete',
+    vendorFailed: 'Fetch failed',
+    prereqNeedPython: 'Python 3.11+ is missing (required to run loopx from source). Install it, then press Retry: python.org/downloads or winget install Python.Python.3.12',
+    prereqNeedGit: 'git is missing (required to fetch the source). Install it, then press Retry: git-scm.com or winget install Git.Git',
+    prereqUnknown: 'Could not probe the environment (needs Python 3.11+ and git). You can also run pip install git+https://github.com/huangruiteng/loopx.git in your own terminal.',
+    issuesProgress: (done, total) => `issues ${done}/${total}`,
+    issueDone: 'fixed',
+    issueOpen: 'open',
+    issueBlocked: 'blocked',
+    issueDeferred: 'deferred',
+    issuePending: 'pending',
+    moreIssues: (n) => `+${n}`,
+    installLoopxBtn: 'pip install loopx',
     installingLoopx: 'Installing… (may take a few minutes)',
     installDone: 'Installation complete',
     installFailed: 'Installation failed',
@@ -295,6 +342,7 @@ const I18N = {
     thinkBlockTitle: 'Reasoning',
     elapsedLabel: (t) => `elapsed ${t}`,
     waitingOn: (w) => `waiting on: ${w}`,
+    waitingAgent: 'waiting for the agent',
     cancel: 'Cancel',
     needProject: 'Run-once requires a project directory',
     needAgent: 'This goal has no registered agent — type an agent id first',
@@ -327,7 +375,8 @@ const I18N = {
     colSubActive: 'The agent is working',
     detailEmptyHint: 'Select an entry in "In progress" to see its details and live log',
     groupDone: 'Done',
-    taskPlaceholder: 'Paste a GitHub issue / repository / issues-list link, optionally with fix instructions; while a task runs, type free text to guide the agent',
+    taskPlaceholder: 'Paste a GitHub issue / repository / issues-list link, optionally with fix instructions',
+    taskGuidePlaceholder: (name) => `Guiding "${name}": type instructions to steer the agent (no new task is created)`,
     taskGoalUnsupported: 'Paste a GitHub issue, pull request, repository home, or issues-list link (free-form goals are not open yet)',
     taskUnsupportedPath: (u) => `Unsupported GitHub link: ${u}. Paste an issue, a pull request, the repository home, or its issues list.`,
     guidanceNoRunning: 'No task is running. Paste an issue link to create one, or wait until a task runs to send instructions.',
@@ -380,7 +429,6 @@ const I18N = {
     gateTypeInfo: 'Informational',
     gateCardTask: (name) => `Task: ${name}`,
     gateItemInfoLabel: (hint) => `Informational · ${hint}`,
-    gateRawToggle: 'Show original text',
     gateExplainWrite: 'Approval needed: grant write access so the agent can implement changes and submit the PR.',
     gateExplainDecide: 'Your decision needed: approve or reject this change.',
     gateExplainPublish: 'Approval needed: publish / submit the PR.',
@@ -408,11 +456,20 @@ const I18N = {
     approveGateHint: 'This item needs your approval: once approved, the task continues along this action.',
     todoDoneHint: 'This is an informational/instructional item: marking it done is enough — no approval and no new action.',
     approveDone: 'Approved — the task will continue',
+    approveResumed: 'auto-run resumed after approval',
     todoDoneFeedback: 'Marked done',
     githubTokenTitle: 'GitHub token settings',
     githubTokenExplain: 'Used to fork the repository, push the branch, and create the PR. Provide a fine-grained Personal Access Token with Repository read/write. The token stays in this machine\'s BitFun app storage only. If the GitHub CLI is already signed in on this machine (gh auth login), publishing reuses it automatically — no token needed.',
     githubTokenPlaceholder: 'ghp_ or github_pat_ …',
     githubTokenSave: 'Save & verify',
+    ghLoginGuideTitle: 'Option 1 (recommended): sign in with GitHub CLI',
+    ghLoginGuide: 'Click the button below to auto-install GitHub CLI and sign in via the browser — no manual token creation (the system proxy is used automatically when the network is restricted).',
+    ghLoginBtn: 'Sign in with GitHub CLI',
+    tokenGuideTitle: 'Option 2: use an existing token',
+    tokenGuide: 'Create a fine-grained token on GitHub (needs Contents and Pull requests read/write):',
+    tokenGuideLink: 'github.com/settings/personal-access-tokens/new',
+    ghLoginDone: (login) => `Signed in: ${login}`,
+    ghLoginFailed: 'Sign-in failed',
     githubTokenStatus: 'Status: ',
     githubTokenSaved: (user) => `Token valid and saved (login: ${user})`,
     githubTokenInvalid: 'Token invalid or expired',
@@ -425,10 +482,17 @@ const I18N = {
     gateCredToken: (login) => `✓ GitHub token configured (${login})`,
     gateCredNone: '⚠ Not signed in to GitHub yet — sign in before submitting the PR',
     gateCredSetup: 'Sign in to GitHub',
+    gateAfterPublish: 'After approval: forks to your GitHub automatically → pushes the branch → opens the PR (tagged [bitfun-loopx]), then continues with the remaining issues',
+    gateAfterApprove: 'After approval: the task continues running automatically',
+    sectionTarget: 'Target',
+    sectionDecision: 'Your decision',
+    sectionProgress: 'Progress',
+    sectionResult: 'Result',
     approvePrTitle: 'Approve and submit the PR?',
     approvePrHint: 'On approval the console will: check/create your fork → push the fix branch → create a PR against the upstream repository (the title carries the [bitfun-loopx] marker so the tool\'s PRs are searchable).',
     approvePrNeedToken: '⚠ No GitHub token configured yet — approving will open the token settings first.',
     publishWorking: 'Publishing the PR (first fork may take a minute or two)…',
+    publishAnalyzing: 'Analyzing the root cause and the solution…',
     publishDone: (url) => `✅ PR submitted: ${url}`,
     publishFailed: 'PR submission failed',
     publishNeedToken: 'A GitHub token is required to publish the PR',
@@ -466,6 +530,8 @@ const I18N = {
     stageClone: 'Cloning repository…',
     stageClonePercent: (p) => `Cloning repository… ${p}%`,
     intakeCloneNote: (repo) => `${repo} will be cloned into the MiniApp data directory (no local checkout needed).`,
+    issueHasImages: 'This issue embeds images (screenshots) — text alone may not pinpoint the problem',
+    intakeVisionWarn: (n) => `⚠ ${n} issue(s) embed images, but the current model has no multimodal capability: key information in the screenshots may be unreadable, and text alone may not confirm the root cause. Consider adding a text description (error messages, repro steps) before creating the task, or switch to a vision-capable model. You can still continue, but fix quality may suffer.`,
     intakeReuseNote: (repo) => `Found the local checkout of ${repo} — no re-cloning.`,
     intakeWriteNote: 'This confirmation grants the task repository write scope and continuous auto-run; you will only be asked again for PR/publish decisions.',
     taskCloneOtherRepo: (expected, actual) => `The local checkout is bound to ${actual}; ${expected} will be cloned into its own directory instead.`,
@@ -542,6 +608,10 @@ const S = {
   // Persisted activity logs (goalId -> {lines}) restored on boot so the
   // stream survives console restarts; bounded per goal before each save.
   persistedLogs: {},
+  // Persisted gate summaries (goalId -> {todoId -> {status, text}}) so the
+  // three-line Chinese summary is ALREADY on the card when it renders —
+  // generated once, displayed instantly on every later session.
+  persistedGateSummaries: {},
 };
 
 // Direction C: a goal created by auto-clone binds to its own clone directory;
@@ -620,6 +690,28 @@ function syncComposerModel() {
   fillModelSelect(document.getElementById('composer-model'), S.config.defaultModel || 'auto', false);
 }
 
+// The host model catalog currently exposes only supports_text_chat — no
+// vision flag — so capability detection falls back to a name heuristic.
+// Unknown models are treated as text-only: the conservative reading the
+// image guard needs (screenshots may carry the whole problem).
+const VISION_MODEL_HINTS = /vision|multimodal|gpt-4o|o1|o3|gemini|claude|qwen[^ ]*-?vl|glm-?4v|pixtral|llava|internvl|moondream/i;
+function modelSupportsVision() {
+  const catalog = Array.isArray(S.modelCatalog) ? S.modelCatalog : [];
+  const currentId = String(S.config.defaultModel || 'auto');
+  const entry = catalog.find((m) => m && m.id === currentId)
+    || catalog.find((m) => m && m.isDefault)
+    || catalog[0];
+  if (!entry) return false;
+  const flags = String(
+    (entry.capabilities && Array.isArray(entry.capabilities) ? entry.capabilities.join(',') : entry.capabilities)
+    || entry.capability || ''
+  ).toLowerCase();
+  if (flags && /vision|multimodal|image/.test(flags)) return true;
+  if (flags && /text_chat/.test(flags)) return false;
+  const label = `${String(entry.name || '')} ${String(entry.modelName || '')} ${String(entry.id || '')}`;
+  return VISION_MODEL_HINTS.test(label);
+}
+
 // The composer shows where the next intake lands: a new task (default) or an
 // existing goal. The picker is a custom popover so every goal option carries
 // its own delete (×) button — native selects cannot host per-option buttons.
@@ -627,8 +719,22 @@ function composerTargetValue() {
   return S.composerTargetId || '';
 }
 
+// The input hint must match the mode: paste-a-link for new tasks, guide
+// wording when an existing goal is selected (interjections, not intake).
+function updateTaskPlaceholder() {
+  const input = document.getElementById('task-input');
+  if (!input) return;
+  if (S.composerTargetId) {
+    const g = S.goals.get(S.composerTargetId);
+    input.placeholder = t('taskGuidePlaceholder', g ? goalDisplayName(g) : S.composerTargetId);
+  } else {
+    input.placeholder = t('taskPlaceholder');
+  }
+}
+
 function setComposerTarget(id) {
   S.composerTargetId = id || '';
+  updateTaskPlaceholder();
   const label = document.getElementById('composer-target-label');
   if (label) {
     if (S.composerTargetId) {
@@ -753,6 +859,11 @@ function newGoalState(goalId, info) {
     userTodos: null,     // open user-lane todos (gate approvals), null = not loaded
     userTodosAt: 0,
     userTodosLoading: false,
+    // Per-issue tracker for batch goals (one agent todo per issue): the
+    // board projection { issues:[{url,number,title,status,done}], done, total }.
+    issues: null,
+    issuesAt: 0,
+    issuesLoading: false,
     wasGated: false,
     // First gate observation of the session adopts silently: pre-existing
     // gates must not re-notify when the console opens or a new task starts.
@@ -760,7 +871,21 @@ function newGoalState(goalId, info) {
     // Gate-item helpers: agent-lane todos (issue titles as background) and
     // per-item Chinese summaries generated by the host agent.
     agentTodos: [],
-    gateSummaries: new Map(),
+    gateSummaries: (() => {
+      const stored = S.persistedGateSummaries && S.persistedGateSummaries[goalId];
+      const map = new Map();
+      if (stored && typeof stored === 'object') {
+        for (const [todoId, v] of Object.entries(stored)) {
+          if (v && v.status === 'done' && v.text) {
+            // Self-heal legacy caches: summaries persisted before the
+            // parse-don't-filter rule may contain reasoning walls — clean
+            // them on restore so dirty data never resurfaces on the card.
+            map.set(todoId, { status: 'done', text: cleanGateSummary(String(v.text)) });
+          }
+        }
+      }
+      return map;
+    })(),
     activityLines: [],
     currentActivity: '',
   };
@@ -772,7 +897,12 @@ function newGoalState(goalId, info) {
       count: e.count || 1, kind: e.kind || null, raw: e.raw || null,
       stream: !!e.stream, isTick: !!e.isTick,
     }));
-    const last = [...persisted].reverse().find((e) => e.line && !e.isTick);
+    // Card activity line = progress, never model prose: prefer the last
+    // tool/status line over agent/think stream text when restoring, so cached
+    // self-talk ("我需要用三句话…") never resurfaces on the board.
+    const last = [...persisted].reverse()
+      .find((e) => e.line && !e.isTick && e.kind !== 'agent' && e.kind !== 'think')
+      || [...persisted].reverse().find((e) => e.line && !e.isTick);
     if (last) state.currentActivity = activityText(String(last.line));
   }
   return state;
@@ -794,14 +924,38 @@ function scheduleLogSave() {
     saveLogs();
   }, 3000);
 }
+// Gate summaries persist so the three-line summary renders instantly on the
+// card in later sessions — the model only pays latency the first time.
+let gateSummarySaveTimer = null;
+function scheduleGateSummarySave() {
+  if (gateSummarySaveTimer) return;
+  gateSummarySaveTimer = setTimeout(async () => {
+    gateSummarySaveTimer = null;
+    const store = {};
+    for (const g of S.goals.values()) {
+      if (!g.gateSummaries || !g.gateSummaries.size) continue;
+      const obj = {};
+      for (const [todoId, v] of g.gateSummaries) {
+        if (v && v.status === 'done' && v.text) obj[todoId] = { status: 'done', text: v.text };
+      }
+      if (Object.keys(obj).length) store[g.goalId] = obj;
+    }
+    S.persistedGateSummaries = store;
+    try { await app.storage.set('gateSummaries', store); } catch (_) {}
+  }, 2000);
+}
+
 async function saveLogs() {
   const logs = {};
   for (const g of S.goals.values()) {
     if (!Array.isArray(g.activityLines) || !g.activityLines.length) continue;
-    logs[g.goalId] = g.activityLines.slice(-240).map((e) => ({
-      time: e.time, line: String(e.line || '').slice(0, 2000),
+    // Persistence is a restart-history snapshot, not the raw view: keep the
+    // window small (120 lines × 1.2KB) so multi-goal boards never round-trip
+    // megabytes of JSON through the worker every few seconds.
+    logs[g.goalId] = g.activityLines.slice(-120).map((e) => ({
+      time: e.time, line: String(e.line || '').slice(0, 1200),
       isErr: !!e.isErr, count: e.count || 1, kind: e.kind || null,
-      raw: e.raw ? String(e.raw).slice(0, 2000) : null,
+      raw: e.raw ? String(e.raw).slice(0, 1200) : null,
       stream: !!e.stream, isTick: !!e.isTick,
     }));
   }
@@ -858,6 +1012,10 @@ async function loadConfig() {
   try {
     const logs = await app.storage.get('logs');
     if (logs && typeof logs === 'object') S.persistedLogs = logs;
+  } catch (_) {}
+  try {
+    const summaries = await app.storage.get('gateSummaries');
+    if (summaries && typeof summaries === 'object') S.persistedGateSummaries = summaries;
   } catch (_) {}
   // Execution moved to the host agent; drop persisted external-host settings.
   delete S.config.host;
@@ -1014,10 +1172,12 @@ function pollNow(g, { force = false } = {}) {
 // ── user gates (approvals) ────────────────────────────────
 // A gated goal's concrete asks live in its user-lane todos. Load them lazily
 // when a goal enters the review group, cache for 60s, and raise attention
-// (system notification) exactly on the not-gated → gated edge.
+// (system notification) exactly on the not-gated → gated edge. Returns true
+// when a fetch actually ran (false = skipped: in-flight or fresh cache) so
+// callers can chain a re-evaluation without looping.
 async function refreshUserTodos(g, force = false) {
-  if (g.userTodosLoading) return;
-  if (!force && g.userTodos && Date.now() - g.userTodosAt < 60000) return;
+  if (g.userTodosLoading) return false;
+  if (!force && g.userTodos && Date.now() - g.userTodosAt < 60000) return false;
   g.userTodosLoading = true;
   try {
     const res = await app.call('loopx.listTodos', {
@@ -1102,6 +1262,7 @@ async function refreshUserTodos(g, force = false) {
     g.userTodosLoading = false;
     renderGoal(g);
   }
+  return true;
 }
 
 function notifyGate(g) {
@@ -1124,9 +1285,21 @@ function syncGateState(g) {
     // silently. A gate that already existed must not fire a "historical"
     // notification every time the console opens or a new task is created.
     g.firstGateCheck = false;
-    g.wasGated = gated;
-    if (gated) refreshUserTodos(g, true);
-    else g.userTodos = null;
+    if (gated) {
+      g.wasGated = true;
+      refreshUserTodos(g, true);
+    } else if (shouldTrackUserTodos(g)) {
+      // waiting_on may say codex while a publish approval is already open:
+      // discover it silently, then adopt the post-load state.
+      refreshUserTodos(g).then((ran) => {
+        if (ran && isLiveGoal(g)) {
+          g.wasGated = isGated(g);
+          requestRender();
+        }
+      });
+    } else {
+      g.wasGated = false;
+    }
     return;
   }
   if (gated) {
@@ -1137,10 +1310,21 @@ function syncGateState(g) {
     } else {
       refreshUserTodos(g);
     }
-  } else {
-    g.userTodos = null;
+  } else if (shouldTrackUserTodos(g)) {
+    // Not gated by waiting_on: keep probing for open user todos so a publish
+    // approval surfaces even while loopx reports waiting_on=codex. Chain the
+    // re-evaluation only when a fetch actually ran (TTL skips stop the chain).
+    refreshUserTodos(g).then((ran) => {
+      if (ran && isLiveGoal(g)) syncGateState(g);
+    });
   }
   g.wasGated = gated;
+}
+
+// User todos only matter for goals this console owns and runs: archived goals
+// are restore-only, other-host goals are not ours to approve.
+function shouldTrackUserTodos(g) {
+  return !g.archived && isOwnedGoal(g.goalId);
 }
 
 async function approveTodo(g, todo, note, button, opts = {}) {
@@ -1172,6 +1356,12 @@ async function approveTodo(g, todo, note, button, opts = {}) {
       }
       recordGoalActivity(g, t('publishWorking'));
       try {
+        let analysis = null;
+        try {
+          recordGoalActivity(g, t('publishAnalyzing'));
+          analysis = await generateCauseAnalysis(g, todo);
+        } catch (_) { /* publish proceeds without the analysis */ }
+        const issueRefs = parseIssueUrls(String(todo.text || todo.title || ''));
         const published = await app.call('loopx.publishPr', {
           projectDir: goalProjectDir(g.goalId),
           goalId: g.goalId,
@@ -1179,6 +1369,12 @@ async function approveTodo(g, todo, note, button, opts = {}) {
           title: prTitleFor(g),
           body: prBodyFor(g),
           branch: branchHintFromText(todo.text || todo.title || ''),
+          // The worker composes the real PR content from this: issue number
+          // in the title, "Fixes #N" binding, issue link + one-line
+          // description, the generated 原因/解决 analysis and the branch's
+          // commit subjects.
+          issueUrl: issueRefs.length ? issueRefs[0].url : null,
+          analysis,
         });
         if (!published.ok) throw new Error(published.error || 'publish failed');
         recordGoalActivity(g, t('publishDone', published.prUrl), false, 'agent');
@@ -1209,6 +1405,27 @@ async function approveTodo(g, todo, note, button, opts = {}) {
     if (!res.ok) throw new Error(res.error || 'todo complete failed');
     const todoIsGate = todo.task_class === 'user_gate';
     log(`[${g.goalId}] ${todoIsGate ? t('approveDone') : t('todoDoneFeedback')} (${todo.todo_id})`);
+    // Approval is an explicit "go": clear any user stop and re-enable
+    // auto-run so the task proceeds to the next step without another click
+    // (the paused 继续/删除 buttons must not linger after a decision).
+    if (g.userStopped || !g.autoRun || !g.monitoring) {
+      g.userStopped = false;
+      delete S.config.stoppedByGoal[g.goalId];
+      delete S.config.autoRunBeforeStop[g.goalId];
+      g.monitoring = true;
+      S.config.monitorByGoal[g.goalId] = true;
+      g.autoRun = true;
+      S.config.autoRunByGoal[g.goalId] = true;
+      await saveConfig();
+      log(`[${g.goalId}] ${t('approveResumed')}`);
+    }
+    // Reload the gate list fresh. A rapid second approval can land while the
+    // first reload is still in flight — wait it out so the just-completed
+    // todo is guaranteed to be reflected (otherwise the stale cached list
+    // keeps the second card visible for up to 60s).
+    while (g.userTodosLoading) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
     await refreshUserTodos(g, true);
     pollNow(g, { force: true }); // approval may clear the gate — re-decide immediately
     return true;
@@ -1328,7 +1545,17 @@ function isGated(g) {
   const w = g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn;
   if (w === 'user') return true;
   const s = String(g.last?.state || g.state || '').toLowerCase();
-  return /gate|user_action|operator/.test(s);
+  if (/gate|user_action|operator/.test(s)) return true;
+  // loopx may keep waiting_on=codex while an open user-lane todo (publish
+  // approval etc.) sits pending — the todo itself is the authoritative gate.
+  // Multi-issue goals run other issues in parallel, so waiting_on alone is
+  // NOT enough to surface a publish approval. Informational user todos
+  // (guidance, not decisions) must NOT gate: they would park the goal in the
+  // review column with nothing actionable to show.
+  if (Array.isArray(g.userTodos) && g.userTodos.some((td) => gateTodoInfo(td).isBlocking)) {
+    return true;
+  }
+  return false;
 }
 
 // The board mirrors an issue tracker, but attention comes first: ONLY the two
@@ -1430,10 +1657,11 @@ function renderGoal(_g) {
 }
 
 function goalNarration(g) {
-  // Scheduler guidance (recommended_action / reason, e.g. "run a bounded
-  // vision-gap replan…") is loopx-internal jargon — never surface it. The
-  // board speaks in objectives, errors, and states; the raw reason stays in
-  // the diagnostics log.
+  // Issue goals: the issue chips row IS the narration (count + per-issue
+  // status chips with titles on hover). Writing the title/progress again in
+  // prose would duplicate both the strip and the gate card's 背景 — human
+  // views stay de-duplicated.
+  if (objectiveHasIssueSignal(g.objective || '')) return '';
   return g.objective || g.lastError
     || (g.archived ? t('statusArchived') : g.last?.state || g.state || g.goalId || '');
 }
@@ -1466,10 +1694,15 @@ function goalDisplayName(g) {
 }
 
 // waiting_on values are loopx identifiers ('user', 'controller', …); translate
-// the one that means the user instead of leaking raw ids into the UI.
+// the one that means the user instead of leaking raw ids into the UI. 'codex'
+// is loopx's legacy label for the agent execution lane — in outer_controller
+// mode that lane is BitFun's own agent, so surface it as friendly text too.
 function waitingLabel(w) {
   if (!w) return null;
-  return String(w).toLowerCase() === 'user' ? t('groupReview') : String(w);
+  const v = String(w).toLowerCase();
+  if (v === 'user') return t('groupReview');
+  if (v === 'codex' || v === 'agent') return t('waitingAgent');
+  return String(w);
 }
 
 // loopx authors todo texts in its own words; the console frames them with a
@@ -1533,14 +1766,146 @@ function issueTitlesFor(g, raw) {
 // hidden, tool-less, cached per goal, and never touch the goal's own session.
 const summaryRuns = new Map(); // sessionId -> { goalId, todoId, buffer }
 
+// The summary model may reason aloud before answering ("The user wants a
+// concise 3-line summary… Let me draft.") — the wall of reasoning must never
+// reach the human-facing card. Parse the REAL answer instead: the last
+// occurrence of each labeled line (背景/已完成/需要你) in order. Extraction
+// beats filtering because reasoning text is arbitrary and unfilterable.
+const GATE_SUMMARY_LABELS = [/^背景[:：]/, /^已完成[:：]/, /^需要你[:：]/];
+function extractGateSummary(text) {
+  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lastIndexOf = (re) => {
+    for (let i = lines.length - 1; i >= 0; i -= 1) if (re.test(lines[i])) return i;
+    return -1;
+  };
+  const idx = GATE_SUMMARY_LABELS.map(lastIndexOf);
+  if (idx.every((i) => i >= 0) && idx[0] < idx[1] && idx[1] < idx[2]) {
+    return [lines[idx[0]], lines[idx[1]], lines[idx[2]]].join('\n');
+  }
+  return null;
+}
+
+// Fallback: drop obvious self-talk lines; if that empties the text, keep the
+// raw tail (last few lines) rather than nothing.
+const SUMMARY_SELFTALK_RE = /^(我需要|我要|我会|我将|让我|首先|接下来|好的|那么|I need to|I will|I'm going to|Let me|First|Next|Okay|The user wants|Should I|But wait|Need to|Format|Original|Check|Each|Let's|Let me check|Could|Final)[，,.:：\s]/i;
+function stripSummarySelfTalk(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const kept = lines.filter((line) => {
+    const t = line.trim();
+    if (!t) return false;
+    if (SUMMARY_SELFTALK_RE.test(t)) return false;
+    return true;
+  });
+  if (kept.length) return kept.join('\n').trim();
+  const tail = lines.slice(-5).filter((line) => line.trim());
+  return tail.length ? tail.join('\n').trim() : String(text || '').trim();
+}
+
+// The one gate-summary entry point: structured extraction first, filtering
+// as the safety net. Never raw model output.
+function cleanGateSummary(text) {
+  return extractGateSummary(text) || stripSummarySelfTalk(text);
+}
+
+// ── publish-time cause/solution analysis ───────────────────
+// PR bodies need "why it broke + how it was fixed". A one-shot agent run
+// (no tools) reads the issue title, branch and commit subjects and answers
+// with exactly two labeled lines (原因：/解决：). Runs are tracked like the
+// gate summaries; a 60s cap resolves null so publish never blocks on it.
+const analysisRuns = new Map(); // sessionId -> { goalId, resolve, buffer, timer }
+function extractLabeledLines(text, labels) {
+  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const out = {};
+  for (const key of labels) {
+    const re = new RegExp(`^${key}[:：]\\s*(.*)$`);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const m = lines[i].match(re);
+      if (m) { out[key] = m[1].trim() || null; break; }
+    }
+  }
+  return labels.some((key) => out[key])
+    ? { cause: out['原因'] || null, solution: out['解决'] || null }
+    : null;
+}
+
+function generateCauseAnalysis(g, todo) {
+  return new Promise((resolve) => {
+    const finish = (value) => resolve(value);
+    let timer = null;
+    (async () => {
+      const raw = String(todo.text || todo.title || '');
+      const titles = issueTitlesFor(g, raw);
+      const branch = branchHintFromText(raw);
+      let subjects = [];
+      let files = [];
+      let stat = null;
+      try {
+        const gl = await app.call('loopx.gitLog', { projectDir: goalProjectDir(g.goalId), branch: branch || null });
+        if (gl && gl.ok && Array.isArray(gl.subjects)) subjects = gl.subjects.slice(0, 10);
+      } catch (_) {}
+      try {
+        const gd = await app.call('loopx.gitDiff', { projectDir: goalProjectDir(g.goalId), branch: branch || null });
+        if (gd && gd.ok) { files = (gd.files || []).slice(0, 30); stat = gd.stat || null; }
+      } catch (_) {}
+      const prompt = [
+        '根据下面的修复任务信息，用中文输出恰好两行：第一行以「原因：」开头（问题出现的根因），第二行以「解决：」开头（如何解决的——具体到改了哪些文件、每处改动解决了什么问题）。不要输出任何其他内容（不要思考过程、开场白或解释）。',
+        `Issue：${titles.join('；') || raw.slice(0, 200)}`,
+        `分支：${branch || '?'}`,
+        files.length ? `涉及文件${stat ? `（${stat}）` : ''}：\n${files.map((f) => `- ${f}`).join('\n')}` : '',
+        subjects.length ? `提交记录：\n${subjects.map((s) => `- ${s}`).join('\n')}` : '',
+      ].filter(Boolean).join('\n');
+      try {
+        const run = await app.agent.run(prompt, {
+          sessionName: `LoopX PR 分析 · ${goalDisplayName(g)}`,
+          enableTools: false,
+          model: S.config.defaultModel || 'auto',
+        });
+        timer = setTimeout(() => {
+          if (analysisRuns.has(run.sessionId)) analysisRuns.delete(run.sessionId);
+          finish(null);
+        }, 60000);
+        analysisRuns.set(run.sessionId, {
+          goalId: g.goalId, resolve: finish, buffer: '', timer,
+        });
+      } catch (_) {
+        if (timer) clearTimeout(timer);
+        finish(null);
+      }
+    })();
+  });
+}
+
+// Renders the three labeled summary lines directly on the card (no gray box):
+// each line becomes its own row with the 背景/已完成/需要你 label bolded.
+function appendLabeledSummary(container, text) {
+  for (const rawLine of String(text || '').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const row = document.createElement('div');
+    const m = line.match(/^(背景|已完成|需要你)[:：]\s*(.*)$/);
+    if (m) {
+      const label = document.createElement('strong');
+      label.textContent = `${m[1]}：`;
+      row.append(label, m[2] || '');
+    } else {
+      row.textContent = line;
+    }
+    container.appendChild(row);
+  }
+}
+
 async function ensureGateSummary(g, todo) {
   if (!isLiveGoal(g) || !todo || !todo.todo_id) return;
   if (!g.gateSummaries) g.gateSummaries = new Map();
-  if (g.gateSummaries.has(todo.todo_id)) return;
+  // Done summaries persist across sessions (loaded at boot); loading ones are
+  // in flight. Anything else (missing / failed / empty) retries so the card
+  // always converges on a ready summary without user interaction.
+  const existing = g.gateSummaries.get(todo.todo_id);
+  if (existing && (existing.status === 'done' || existing.status === 'loading')) return;
   g.gateSummaries.set(todo.todo_id, { status: 'loading' });
   const titles = issueTitlesFor(g, todo.text || todo.title || '');
   const prompt = [
-    '用中文三行概括下面的审批事项，每行不超过 60 字，只输出这三行、不要其他内容：',
+    '用中文输出恰好三行，每行不超过 60 字；第一行必须以「背景：」开头，第二行必须以「已完成：」开头，第三行必须以「需要你：」开头。不要输出任何其他内容（不要思考过程、开场白、解释或多余换行）：',
     `背景：${titles.length ? titles.join('；') : '（见原文）'}`,
     '已完成：该事项涉及的工作或改动',
     '需要你：用户现在需要做的决定或操作',
@@ -1567,7 +1932,15 @@ async function ensureGateSummary(g, todo) {
 // console's own PR flow on approval — submitting the PR IS the default.
 const PUBLISH_TODO_RE = /publish|external_review|reviewer|pr_|pull_request/i;
 function isPublishTodo(todo) {
-  return PUBLISH_TODO_RE.test(String(todo?.action_kind || todo?.actionKind || todo?.task_class || todo?.taskClass || ''));
+  const meta = String(todo?.action_kind || todo?.actionKind || todo?.task_class || todo?.taskClass || '');
+  const text = String(todo?.title || todo?.text || '');
+  // loopx writes publish gates with varying metadata: some carry
+  // action_kind=external_pr_creation, others only a user_action todo whose
+  // TEXT names the publish/PR ask ("推送 fix/… 分支并为 issue #N 创建 PR
+  // （publish 需 owner 审批）"). Match both so the approval never surfaces
+  // as a mere informational item without the publish action.
+  return PUBLISH_TODO_RE.test(meta)
+    || /publish|external_review|pull request|创建\s*(PR|pull)|提交\s*(PR|pull)/i.test(text);
 }
 
 // GitHub credential state for the publish guidance: the host-level gh CLI
@@ -1632,16 +2005,14 @@ function gateTodoInfo(todo) {
   return { isBlocking, isPublish, typeLabel, title, raw };
 }
 
-// One gate item as a card: task kicker + Chinese title + dim raw text + the
-// action button. Shared by the review column and the detail panel.
+// One gate item as a card: Chinese label + the three-line summary + credential
+// state + after-approval note + the action button. No task kicker and no
+// separate 背景 line — the goal card's head already names the task, and the
+// three-line summary's 背景 covers the issue context (no repeated layers).
 function buildGateItemCard(g, todo) {
   const info = gateTodoInfo(todo);
   const card = document.createElement('div');
   card.className = `gate-card ${info.isBlocking ? 'gate-card--block' : 'gate-card--info'}`;
-  const kicker = document.createElement('div');
-  kicker.className = 'gate-card__kicker';
-  kicker.textContent = t('gateCardTask', goalDisplayName(g));
-  card.appendChild(kicker);
   const title = document.createElement('div');
   title.className = 'gate-card__title';
   const label = document.createElement('span');
@@ -1684,18 +2055,14 @@ function buildGateItemCard(g, todo) {
   title.append(label, copyBtn, btn);
   card.appendChild(title);
   if (info.isBlocking) {
-    const titles = issueTitlesFor(g, info.raw);
-    if (titles.length) {
-      const bg = document.createElement('div');
-      bg.className = 'gate-card__background';
-      bg.textContent = `${t('gateBackground')}${titles.join('；')}`;
-      card.appendChild(bg);
-    }
+    // The three-line summary's 背景 line carries the issue titles — no
+    // separate background block here (de-duplicated human view).
     const summary = g.gateSummaries && g.gateSummaries.get(todo.todo_id);
     if (summary && summary.status === 'done' && summary.text) {
       const sum = document.createElement('div');
       sum.className = 'gate-card__summary';
-      sum.textContent = summary.text;
+      // Plain lines on the card (no gray box); labels bolded for scannability.
+      appendLabeledSummary(sum, summary.text);
       card.appendChild(sum);
     } else if (summary && summary.status === 'loading') {
       const loading = document.createElement('div');
@@ -1730,21 +2097,17 @@ function buildGateItemCard(g, todo) {
         card.appendChild(setup);
       }
     }
+    // "用户做了什么之后会发生什么": every decision card answers what
+    // happens next, so the human never approves blind.
+    const after = document.createElement('div');
+    after.className = 'gate-card__after';
+    after.textContent = info.isPublish ? t('gateAfterPublish') : t('gateAfterApprove');
+    card.appendChild(after);
   }
-  if (info.raw && info.raw !== info.title) {
-    const details = document.createElement('details');
-    details.className = 'gate-card__raw-details';
-    // The card itself opens the log panel on click: the toggle must not
-    // bubble up, or the resulting re-render would collapse it immediately.
-    details.addEventListener('click', (ev) => ev.stopPropagation());
-    const summary = document.createElement('summary');
-    summary.textContent = t('gateRawToggle');
-    const rawEl = document.createElement('div');
-    rawEl.className = 'gate-card__raw';
-    rawEl.textContent = info.raw;
-    details.append(summary, rawEl);
-    card.appendChild(details);
-  }
+  // The loopx original wording is internal noise for the human template
+  // (label + background + three-line summary + after-approval already cover
+  // it) — no 查看原文 collapsible. Anyone who needs the exact text can copy
+  // it via the 复制 button, which embeds info.raw.
   return card;
 }
 
@@ -1753,18 +2116,12 @@ function buildGateItemsList(g) {
   const list = document.createElement('div');
   list.className = 'gate-items';
   const todos = g.userTodos || [];
+  // The review column is a DECISION queue, not an inbox: only blocking items
+  // (user_gate / publish scope) need a human decision. Informational user
+  // todos (guidance loopx wrote for the agent/user, "用户需要 xxx" style)
+  // stay internal — loopx reconciles them without the console echoing them.
   const blocking = todos.filter((td) => gateTodoInfo(td).isBlocking);
-  const infoOnly = todos.filter((td) => !gateTodoInfo(td).isBlocking);
-  const group = (label, items) => {
-    if (!items.length) return;
-    const head = document.createElement('div');
-    head.className = 'gate-group-label';
-    head.textContent = label;
-    list.appendChild(head);
-    for (const td of items) list.appendChild(buildGateItemCard(g, td));
-  };
-  group(t('gateGroupBlocking'), blocking);
-  group(t('gateGroupInfo'), infoOnly);
+  for (const td of blocking) list.appendChild(buildGateItemCard(g, td));
   return list;
 }
 
@@ -1779,6 +2136,9 @@ function activityText(line) {
 // Keep the stream DOM light: multi-KB reasoning blocks are the single biggest
 // layout cost in the log panel. Only the newest tail renders; the full text
 // stays in the persisted log (and the raw dialog), never in the DOM.
+// Per-kind DOM tail windows: reasoning is auxiliary (small window), the
+// model's visible output gets a more generous one.
+const STREAM_DOM_CAPS = { think: 2000, agent: 6000, prompt: 4000 };
 function cappedStreamText(text, cap) {
   const s = String(text || '');
   if (s.length <= cap) return s;
@@ -1804,11 +2164,14 @@ function activityLineElement(entry) {
     // newest tail goes into the DOM (full text stays persisted).
     const details = document.createElement('details');
     details.className = 'activity-prompt activity-prompt--think';
-    details.open = true;
+    // Collapsed by default: reasoning is the agent's internal thinking — the
+    // human-facing log leads with actions and output; thinking stays one
+    // click away.
+    details.open = false;
     const summary = document.createElement('summary');
     summary.textContent = t('thinkBlockTitle');
     const pre = document.createElement('pre');
-    pre.textContent = cappedStreamText(entry.line, 2000);
+    pre.textContent = cappedStreamText(entry.line, STREAM_DOM_CAPS.think);
     details.append(summary, pre);
     row.appendChild(details);
   } else if (entry.kind === 'prompt' && entry.raw) {
@@ -1819,13 +2182,17 @@ function activityLineElement(entry) {
     const summary = document.createElement('summary');
     summary.textContent = activityDisplayText(entry);
     const pre = document.createElement('pre');
-    pre.textContent = cappedStreamText(entry.raw, 4000);
+    pre.textContent = cappedStreamText(entry.raw, STREAM_DOM_CAPS.prompt);
     details.append(summary, pre);
     row.appendChild(details);
   } else {
     const text = document.createElement('span');
     text.className = 'activity-stream__text';
-    text.textContent = activityDisplayText(entry);
+    // Streamed model output stays capped too — the raw view keeps the whole
+    // text, the DOM only needs a readable tail window.
+    text.textContent = entry.stream
+      ? cappedStreamText(entry.line, STREAM_DOM_CAPS.agent)
+      : activityDisplayText(entry);
     row.appendChild(text);
   }
   return row;
@@ -2006,6 +2373,11 @@ function buildRunItem(g, parked = false) {
   text.className = 'run-item__text';
   text.textContent = goalNarration(g);
   meta.append(id, text);
+  // Per-issue progress on the directory row itself: the 进行中 rail is where
+  // running goals live, so the issue board must be visible right here (the
+  // full card variant only appears in the review column).
+  const issueStrip = buildIssueStrip(g, { rail: true });
+  if (issueStrip) meta.append(issueStrip);
   el.append(dot, meta, goalStatusChip(g), buildGoalActions(g, true));
   return el;
 }
@@ -2073,6 +2445,161 @@ function buildOtherGoalsRows(goals) {
   return body;
 }
 
+// ── per-goal issue tracker (card strip) ────────────────────
+// Batch goals fix many issues: intake writes one agent todo per issue
+// ("Fix GitHub issue #N: <title> (<url>)"), so the per-issue board is a
+// projection over those todos (open / blocked / deferred / done). The strip
+// lists the objective's issue URLs with status chips; single-issue goals
+// derive their chip state from the goal's own group (no extra RPC needed).
+
+function parseIssueUrls(text) {
+  const raw = String(text || '').match(/https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/(?:issues|pull)\/\d+/gi) || [];
+  const seen = new Set();
+  const issues = [];
+  for (const candidate of raw) {
+    const url = candidate.replace(/[),.;:\]}]+$/g, '');
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const m = url.match(/\/(?:issues|pull)\/(\d+)$/);
+    issues.push({ url, number: m ? Number(m[1]) : null });
+  }
+  return issues;
+}
+
+function issueStatusLabel(status) {
+  if (status === 'done') return t('issueDone');
+  if (status === 'blocked') return t('issueBlocked');
+  if (status === 'deferred') return t('issueDeferred');
+  if (status === 'open') return t('issueOpen');
+  return t('issuePending');
+}
+
+async function refreshGoalIssues(g, force = false) {
+  if (g.issuesLoading) return;
+  if (!force && g.issues && Date.now() - g.issuesAt < 60000) return;
+  g.issuesLoading = true;
+  try {
+    const res = await app.call('loopx.goalIssues', {
+      argvPrefix: S.config.argvPrefix,
+      projectDir: goalProjectDir(g.goalId),
+      goalId: g.goalId,
+    });
+    g.issues = res && res.ok ? res : { issues: [], total: 0, done: 0, open: 0 };
+    g.issuesAt = Date.now();
+  } catch (err) {
+    if (!g.issues) g.issues = { issues: [], total: 0, done: 0, open: 0 };
+    dbgUi('goalIssues:error', `${g.goalId} ${String(err && (err.message || err)).slice(0, 120)}`);
+  } finally {
+    g.issuesLoading = false;
+    renderGoal(g);
+  }
+}
+
+const ISSUE_CHIP_LIMIT = 12;
+const ISSUE_CHIP_LIMIT_RAIL = 6;
+
+// The objective may carry explicit issue URLs, a bare issues-list URL, or no
+// URL at all. The todo projection (loopx.goalIssues) is the authoritative
+// issue list for batch goals: intake writes one agent todo per issue.
+function objectiveHasIssueSignal(text) {
+  const t2 = String(text || '').trim();
+  return /https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/(?:issues|pull)(?:\/\d+)?\/?/i.test(t2)
+    || /https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/?$/i.test(t2);
+}
+
+// opts.rail: the compact inline variant for 进行中 directory rows (fewer
+// chips); opts.skipLoad: do not kick the lazy projection load (compact rows).
+function buildIssueStrip(g, opts = {}) {
+  if (!objectiveHasIssueSignal(g.objective || '')) return null;
+  const objectiveUrls = parseIssueUrls(g.objective || '');
+  const single = objectiveUrls.length === 1;
+  const chipLimit = opts.rail ? ISSUE_CHIP_LIMIT_RAIL : ISSUE_CHIP_LIMIT;
+  const projection = (g.issues && g.issues.issues) || [];
+  const byUrl = new Map();
+  for (const issue of projection) if (issue.url) byUrl.set(issue.url, issue);
+
+  // Chip rows: explicit objective URLs first; when the objective only names
+  // the issues list (batch), the projection IS the issue list. null = batch
+  // projection still loading.
+  let rows = null;
+  if (objectiveUrls.length) {
+    rows = objectiveUrls.map((u) => ({ url: u.url, number: u.number, info: byUrl.get(u.url) || null }));
+    for (const issue of projection) {
+      if (!objectiveUrls.some((u) => u.url === issue.url)) {
+        rows.push({ url: issue.url, number: issue.number, info: issue });
+      }
+    }
+  } else if (g.issues) {
+    rows = projection.map((issue) => ({ url: issue.url, number: issue.number, info: issue }));
+  }
+
+  const strip = document.createElement('div');
+  strip.className = 'goal__issues' + (opts.rail ? ' goal__issues--rail' : '');
+  if (!single) {
+    const head = document.createElement('span');
+    head.className = 'goal__issues-head';
+    if (rows) {
+      const doneCount = rows.filter((r) => r.info && r.info.done).length;
+      head.textContent = t('issuesProgress', doneCount, rows.length);
+    } else {
+      head.textContent = t('issuesProgress', '…', '…');
+    }
+    strip.appendChild(head);
+  }
+
+  if (rows === null) {
+    const pending = document.createElement('span');
+    pending.className = 'issue-chip issue-chip--pending';
+    pending.textContent = '…';
+    strip.appendChild(pending);
+  } else {
+    rows.slice(0, chipLimit).forEach((row) => {
+      const status = single
+        ? (goalGroup(g) === 'done' ? 'done' : 'open')
+        : (row.info ? row.info.status : 'pending');
+      const chip = document.createElement('a');
+      chip.className = `issue-chip issue-chip--${status}`;
+      chip.href = row.url;
+      chip.target = '_blank';
+      chip.rel = 'noreferrer';
+      chip.textContent = `#${row.number}`;
+      const label = row.info && row.info.title ? `#${row.number} ${row.info.title}` : `#${row.number}`;
+      chip.title = `${label} · ${issueStatusLabel(status)}`;
+      // The chip is a link, not a card/row activation.
+      chip.onclick = (ev) => ev.stopPropagation();
+      strip.appendChild(chip);
+    });
+    if (rows.length > chipLimit) {
+      const more = document.createElement('span');
+      more.className = 'issue-chip issue-chip--more';
+      const rest = rows.length - chipLimit;
+      more.textContent = t('moreIssues', rest);
+      more.title = `${rest} more`;
+      strip.appendChild(more);
+    }
+  }
+
+  // Batch goals lazy-load their todo projection, refreshing at most once per
+  // 60s window per goal (board re-renders kick expired caches naturally).
+  if (!opts.skipLoad && !single && !g.issuesLoading && (!g.issues || Date.now() - g.issuesAt >= 60000)) {
+    refreshGoalIssues(g);
+  }
+  return strip;
+}
+
+// A titled card section: label + dashed divider, so each human-facing part
+// (target / decision / progress) reads as its own block instead of one wall
+// of text.
+function buildGoalSection(labelText, extraClass = '') {
+  const sec = document.createElement('div');
+  sec.className = `goal__section${extraClass ? ` ${extraClass}` : ''}`;
+  const label = document.createElement('div');
+  label.className = 'goal__section-label';
+  label.textContent = labelText;
+  sec.appendChild(label);
+  return sec;
+}
+
 function buildGoalCard(g, compact = false) {
   const group = goalGroup(g);
   const el = document.createElement('div');
@@ -2099,73 +2626,123 @@ function buildGoalCard(g, compact = false) {
     const badge = document.createElement('span');
     badge.className = 'goal__gate-badge';
     // Real count once loaded; no phantom "1" while the todo list is pending.
-    const n = g.userTodos ? g.userTodos.length : 0;
-    badge.textContent = n > 0 ? t('gateCount', n) : t('groupReview');
+    // Only BLOCKING items count as pending decisions; informational todos
+    // stay visible only as a hover hint (they never render as cards).
+    const todos = Array.isArray(g.userTodos) ? g.userTodos : [];
+    const blockingN = todos.filter((td) => gateTodoInfo(td).isBlocking).length;
+    badge.textContent = blockingN > 0 ? t('gateCount', blockingN) : t('groupReview');
+    if (todos.length > blockingN) {
+      badge.title = `${blockingN} ${t('gateGroupBlocking')} · ${todos.length - blockingN} ${t('gateGroupInfo')}`;
+    }
     head.appendChild(badge);
   }
   head.appendChild(goalStatusChip(g));
   el.appendChild(head);
 
-  const narration = document.createElement('div');
-  narration.className = 'goal__reason' + (g.lastError ? ' goal__reason--err' : '');
-  narration.textContent = goalNarration(g);
-  narration.title = goalNarration(g); // full text on hover, no scheduler jargon
-  el.appendChild(narration);
+  if (!compact) {
+    // ── Sectioned card: every human-facing part gets its own titled block
+    // instead of one wall of text. ──
 
-  // A gated card leads with the concrete asks, grouped blocking-first and
-  // rendered as item cards instead of one raw text line.
-  if (group === 'review' && g.userTodos && g.userTodos.length) {
-    el.appendChild(buildGateItemsList(g));
-  }
-
-  // Live stage line: 规划中 / 修复 #N / 执行中 — the "am I close to the PR
-  // confirmation yet" answer without opening the panel.
-  if (group !== 'done' && group !== 'review' && group !== 'archived') {
-    const stage = document.createElement('div');
-    stage.className = 'goal__stage';
-    stage.textContent = goalStageText(g);
-    el.appendChild(stage);
-  } else if (group === 'review' && g.userTodos) {
-    // A gate with no approvable item would otherwise be a dead end — say so
-    // and offer the one action that can move it: run a turn.
-    const none = document.createElement('div');
-    none.className = 'goal__gate-none';
-    const gateWait = (g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn) || null;
-    none.textContent = gateWait
-      ? (waitingLabel(gateWait) === t('groupReview') ? t('groupReview') : t('waitingOn', waitingLabel(gateWait)))
-      : t('gateEmptyHint');
-    el.appendChild(none);
-    if (!g.running) {
-      const runNext = document.createElement('button');
-      runNext.type = 'button';
-      runNext.className = 'btn btn--tiny btn--primary';
-      runNext.textContent = t('runOnce');
-      runNext.onclick = (ev) => { ev.stopPropagation(); executeRunOnce(g); };
-      el.appendChild(runNext);
+    // ① 修复目标：issue 胶囊行即叙述（计数+状态，标题在悬停）——无重复文字
+    {
+      const sec = buildGoalSection(t('sectionTarget'));
+      const narrationText = goalNarration(g);
+      if (narrationText) {
+        const narration = document.createElement('div');
+        narration.className = 'goal__reason' + (g.lastError ? ' goal__reason--err' : '');
+        narration.textContent = narrationText;
+        narration.title = narrationText; // full text on hover
+        sec.appendChild(narration);
+      }
+      const issueStrip = buildIssueStrip(g);
+      if (issueStrip) sec.appendChild(issueStrip);
+      el.appendChild(sec);
     }
-  }
 
-  // Finished tasks answer the obvious question on the card itself.
-  if (group === 'done') {
-    const conclusion = document.createElement('div');
-    conclusion.className = 'goal__conclusion';
-    conclusion.textContent = goalConclusion(g);
-    el.appendChild(conclusion);
-  }
+    // ② 需要你决定：阻塞审批项（等你处理列的主内容）
+    if (group === 'review') {
+      const sec = buildGoalSection(t('sectionDecision'), 'goal__section--decision');
+      if (Array.isArray(g.userTodos) && g.userTodos.length) {
+        sec.appendChild(buildGateItemsList(g));
+      } else if (Array.isArray(g.userTodos)) {
+        // A gate with no approvable item would otherwise be a dead end — say
+        // so and offer the one action that can move it: run a turn.
+        const none = document.createElement('div');
+        none.className = 'goal__gate-none';
+        const gateWait = (g.last && g.last.ok !== false ? g.last.waitingOn : g.waitingOn) || null;
+        none.textContent = gateWait
+          ? (waitingLabel(gateWait) === t('groupReview') ? t('groupReview') : t('waitingOn', waitingLabel(gateWait)))
+          : t('gateEmptyHint');
+        sec.appendChild(none);
+        if (!g.running) {
+          const runNext = document.createElement('button');
+          runNext.type = 'button';
+          runNext.className = 'btn btn--tiny btn--primary';
+          runNext.textContent = t('runOnce');
+          runNext.onclick = (ev) => { ev.stopPropagation(); executeRunOnce(g); };
+          sec.appendChild(runNext);
+        }
+      }
+      el.appendChild(sec);
+    }
 
-  // Archived tasks explain themselves and offer the one action that matters.
-  if (group === 'archived') {
-    const hint = document.createElement('div');
-    hint.className = 'goal__conclusion';
-    hint.textContent = t('archivedHint');
-    el.appendChild(hint);
-    const restore = document.createElement('button');
-    restore.type = 'button';
-    restore.className = 'btn btn--tiny btn--primary';
-    restore.textContent = t('restoreTask');
-    restore.title = t('restoreTaskHint');
-    restore.onclick = (ev) => { ev.stopPropagation(); restoreArchivedGoal(g, restore); };
-    el.appendChild(restore);
+    // ③ 进度 / 结果：live stage line（规划中 / 修复中 / 待发布）或结论
+    if (group !== 'review' && group !== 'archived') {
+      const sec = buildGoalSection(group === 'done' ? t('sectionResult') : t('sectionProgress'));
+      if (group === 'done') {
+        const conclusion = document.createElement('div');
+        conclusion.className = 'goal__conclusion';
+        conclusion.textContent = goalConclusion(g);
+        sec.appendChild(conclusion);
+      } else {
+        const stage = document.createElement('div');
+        stage.className = 'goal__stage';
+        stage.textContent = goalStageText(g);
+        sec.appendChild(stage);
+      }
+      el.appendChild(sec);
+    }
+
+    // ④ 已归档：说明 + 恢复
+    if (group === 'archived') {
+      const hint = document.createElement('div');
+      hint.className = 'goal__conclusion';
+      hint.textContent = t('archivedHint');
+      el.appendChild(hint);
+      const restore = document.createElement('button');
+      restore.type = 'button';
+      restore.className = 'btn btn--tiny btn--primary';
+      restore.textContent = t('restoreTask');
+      restore.title = t('restoreTaskHint');
+      restore.onclick = (ev) => { ev.stopPropagation(); restoreArchivedGoal(g, restore); };
+      el.appendChild(restore);
+    }
+  } else {
+    // Terminal capsule (compact): flat and terse, no section chrome.
+    const narration = document.createElement('div');
+    narration.className = 'goal__reason' + (g.lastError ? ' goal__reason--err' : '');
+    narration.textContent = goalNarration(g);
+    narration.title = goalNarration(g);
+    el.appendChild(narration);
+    if (group === 'done') {
+      const conclusion = document.createElement('div');
+      conclusion.className = 'goal__conclusion';
+      conclusion.textContent = goalConclusion(g);
+      el.appendChild(conclusion);
+    }
+    if (group === 'archived') {
+      const hint = document.createElement('div');
+      hint.className = 'goal__conclusion';
+      hint.textContent = t('archivedHint');
+      el.appendChild(hint);
+      const restore = document.createElement('button');
+      restore.type = 'button';
+      restore.className = 'btn btn--tiny btn--primary';
+      restore.textContent = t('restoreTask');
+      restore.title = t('restoreTaskHint');
+      restore.onclick = (ev) => { ev.stopPropagation(); restoreArchivedGoal(g, restore); };
+      el.appendChild(restore);
+    }
   }
 
   if (g.running || g.currentActivity) {
@@ -2345,24 +2922,21 @@ function openApproveDialog(g, todo) {
     if (summary && summary.status === 'done' && summary.text) {
       const sum = document.createElement('div');
       sum.className = 'approve-text__summary';
-      sum.textContent = summary.text;
+      appendLabeledSummary(sum, summary.text);
       approveText.appendChild(sum);
-    } else if (!summary) {
+    } else if (!summary || summary.status !== 'done') {
       ensureGateSummary(g, todo);
     }
   }
   const typeLine = document.createElement('div');
   typeLine.textContent = hint ? t('gateItemWithType', hint) : t('gateItemTitle');
   approveText.appendChild(typeLine);
-  const details = document.createElement('details');
-  details.className = 'gate-card__raw-details';
-  const summary = document.createElement('summary');
-  summary.textContent = t('gateRawToggle');
+  // The decision dialog shows the todo's original wording inline (it IS the
+  // decision subject) — no 查看原文 collapsible for a single paragraph.
   const rawEl = document.createElement('div');
   rawEl.className = 'gate-card__raw';
   rawEl.textContent = raw;
-  details.append(summary, rawEl);
-  approveText.appendChild(details);
+  approveText.appendChild(rawEl);
   dlg.querySelector('h2').textContent = isPublish
     ? t('approvePrTitle')
     : (isGate ? t('approveGateTitle') : t('todoDoneTitle'));
@@ -2422,6 +2996,10 @@ async function saveGitHubToken() {
     status.textContent = t('githubTokenSaved', res.login);
     log(`GitHub token saved (login=${res.login})`);
     document.getElementById('dlg-token').close();
+    // Gate cards show the credential state inline ("尚未登录 / 已配置
+    // Token") — refresh the board so every card flips immediately; paused
+    // goals don't poll, so without this they would stay stale.
+    requestRender(true);
   } catch (err) {
     status.textContent = `${t('githubTokenInvalid')}：${String(err && err.message || err)}`;
   } finally {
@@ -2435,6 +3013,43 @@ async function clearGitHubToken() {
   await saveConfig();
   document.getElementById('token-input').value = '';
   document.getElementById('token-status').textContent = `${t('githubTokenStatus')}${t('githubTokenMissing')}`;
+  requestRender(true); // gate cards must reflect the cleared credential
+}
+
+// One-click GitHub CLI login: the worker installs gh when missing (winget +
+// system proxy), launches `gh auth login --web` (console window shows the
+// one-time code, the browser completes the flow) and polls until done.
+function appendGhLoginProgress(d) {
+  const el = document.getElementById('gh-login-progress');
+  if (!el) return;
+  el.hidden = false;
+  el.textContent += `${d && d.line ? d.line : ''}\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function runGhLogin() {
+  const btn = document.getElementById('btn-gh-login');
+  const progress = document.getElementById('gh-login-progress');
+  const status = document.getElementById('token-status');
+  btn.disabled = true;
+  progress.hidden = false;
+  progress.textContent = '';
+  try {
+    const res = await app.call('loopx.ghLogin', {});
+    if (!res.ok) throw new Error(res.error || 'gh login failed');
+    S.ghAvailable = true;
+    status.textContent = t('ghLoginDone', res.login || 'gh');
+    log(`[gh] login complete (${res.login || '?'})`);
+    requestRender(true); // gate cards flip to the gh credential state
+    document.getElementById('dlg-token').close();
+  } catch (err) {
+    const message = String(err && err.message || err);
+    status.textContent = `${t('ghLoginFailed')}：${message}`;
+    progress.textContent += `\n${message}\n`;
+    log(`[gh] login failed: ${message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ── one-click loopx state reset ─────────────────────────────
@@ -2635,6 +3250,7 @@ function displayFingerprint() {
 }
 
 let lastFingerprint = '';
+let lastMoreFingerprint = '';
 
 // Rapid bursts of state changes (task-intake progress, goal refresh, first
 // poll) would each rebuild the whole board; coalesce them into one repaint
@@ -2745,8 +3361,19 @@ function renderAllGoals(force = false) {
   }
   if (other.length > 0) moreGroups.push({ key: 'other', goals: other });
   const moreArea = document.getElementById('more-area');
-  moreArea.replaceChildren();
-  if (moreGroups.length > 0) moreArea.appendChild(buildMoreFooter(moreGroups));
+  // Heartbeat polls flip g.polling every ~1-2s, which changes the display
+  // fingerprint and rebuilds the whole board — including an EXPANDED archived
+  // panel, resetting its scroll and destroying hover/click targets mid-use
+  // ("点开归档后 UI 乱掉"). Rebuild the more footer only when its content
+  // actually changed; force renders (chip toggle) still rebuild.
+  const moreSig = moreGroups
+    .map((mg) => `${mg.key}:${mg.goals.map((goal) => goal.goalId).join(',')}`)
+    .join('|');
+  if (force || moreSig !== lastMoreFingerprint) {
+    moreArea.replaceChildren();
+    if (moreGroups.length > 0) moreArea.appendChild(buildMoreFooter(moreGroups));
+    lastMoreFingerprint = moreSig;
+  }
 
   // Master-detail: the selected goal's panel rides inside the run unit.
   const panel = document.getElementById('goal-detail-panel');
@@ -3038,25 +3665,46 @@ const QUIET_AGENT_TOOLS = new Set([
 ]);
 
 // Chat-style streaming: the agent's reply and its reasoning each render as
-// ONE live block updated in place as chunks arrive (like the host's chat),
-// instead of a new row per paragraph. The old design spammed the log with a
-// wall of 思考： rows full of line breaks.
+// ONE live block updated in place as chunks arrive (like the host's chat).
+// Chunks arrive at model speed — coalesce all buffer updates of a frame into
+// ONE DOM write per goal per frame, so a burst of text-chunk events cannot
+// re-layout the (capped) block dozens of times per second.
+const streamPending = new Map(); // goalId -> { think, agent, raf }
 function streamAgentText(g, text, think = false) {
   if (!isLiveGoal(g) || !text) return;
   const key = think ? 'thinkBuffer' : 'agentTextBuffer';
   if (typeof g[key] !== 'string') g[key] = '';
   g[key] += text;
-  upsertGoalStream(g, think ? 'think' : 'agent', g[key]);
+  let pend = streamPending.get(g.goalId);
+  if (!pend) {
+    pend = { think: null, agent: null, raf: false };
+    streamPending.set(g.goalId, pend);
+  }
+  pend[think ? 'think' : 'agent'] = g[key];
+  if (!pend.raf) {
+    pend.raf = true;
+    requestAnimationFrame(() => {
+      pend.raf = false;
+      if (!isLiveGoal(g)) { streamPending.delete(g.goalId); return; }
+      if (typeof pend.think === 'string') upsertGoalStream(g, 'think', pend.think);
+      if (typeof pend.agent === 'string') upsertGoalStream(g, 'agent', pend.agent);
+      pend.think = null;
+      pend.agent = null;
+    });
+  }
 }
 
 function flushAgentText(g) {
   if (!isLiveGoal(g)) return;
+  const pend = streamPending.get(g.goalId);
   for (const [key, kind] of [['agentTextBuffer', 'agent'], ['thinkBuffer', 'think']]) {
-    if (typeof g[key] === 'string' && g[key].trim()) {
-      upsertGoalStream(g, kind, g[key].trim());
+    const latest = pend && typeof pend[kind] === 'string' ? pend[kind] : g[key];
+    if (typeof latest === 'string' && latest.trim()) {
+      upsertGoalStream(g, kind, latest.trim());
     }
     g[key] = '';
   }
+  if (pend) { pend.think = null; pend.agent = null; }
 }
 
 // Create or update the single streaming block for a kind. Status/tool lines
@@ -3082,12 +3730,14 @@ function upsertGoalStream(g, kind, text) {
         // Follow only while the user is near the block's bottom: scrolling
         // up to read reasoning history must not be yanked back down.
         const nearBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 48;
-        pre.textContent = summary;
+        // In-place updates must respect the same DOM tail cap as creation —
+        // writing the full accumulated buffer here was the memory/layout bomb.
+        pre.textContent = cappedStreamText(summary, STREAM_DOM_CAPS.think);
         if (nearBottom) pre.scrollTop = pre.scrollHeight;
       }
     } else {
       const textEl = row.querySelector('.activity-stream__text');
-      if (textEl) textEl.textContent = summary;
+      if (textEl) textEl.textContent = cappedStreamText(summary, STREAM_DOM_CAPS.agent);
     }
     const timeEl = row.querySelector('.activity-stream__time');
     if (timeEl) timeEl.textContent = now;
@@ -3117,11 +3767,9 @@ function upsertGoalStream(g, kind, text) {
       if (!panel.hidden && S.activeGoalId === g.goalId) renderGoalDetails(g);
     }
   }
-  if (kind === 'agent') {
-    g.currentActivity = activityText(summary);
-    const cardText = document.querySelector(`.goal__activity-text[data-goal="${CSS.escape(g.goalId)}"]`);
-    if (cardText) cardText.textContent = g.currentActivity;
-  }
+  // Model output is for the log panel only — the card's live line stays on
+  // tool/status progress (recordGoalActivity), never raw model prose. A
+  // "我需要用三句话…" style self-talk must not land on the human-facing card.
   scheduleLogSave();
 }
 
@@ -3182,19 +3830,45 @@ function pruneToolMaps() {
 }
 
 app.agent.onEvent((e) => {
+  // Publish-time cause/solution runs are collected first: their sessions are
+  // one-shot analyses, not goal turns.
+  const analysisRun = analysisRuns.get(e.sessionId);
+  if (analysisRun) {
+    if (e.sourceEvent === 'text-chunk' && typeof e.text === 'string' && e.contentType !== 'thinking') {
+      analysisRun.buffer += e.text;
+      if (analysisRun.buffer.length > 8000) analysisRun.buffer = analysisRun.buffer.slice(-8000);
+    } else if (e.sourceEvent === 'dialog-turn-completed'
+      || e.sourceEvent === 'dialog-turn-failed'
+      || e.sourceEvent === 'dialog-turn-cancelled') {
+      clearTimeout(analysisRun.timer);
+      const parsed = extractLabeledLines(analysisRun.buffer, ['原因', '解决']);
+      analysisRun.resolve(parsed);
+      analysisRuns.delete(e.sessionId);
+    }
+    return;
+  }
   // Chinese gate-summary runs are collected first: their sessions are not
   // goal turns, so the normal goal event flow must not see them.
   const summaryRun = summaryRuns.get(e.sessionId);
   if (summaryRun) {
     if (e.sourceEvent === 'text-chunk' && typeof e.text === 'string') {
-      summaryRun.buffer += e.text;
+      // Reasoning chunks never enter the summary buffer — only the visible
+      // output stream is a candidate for the three-line answer.
+      if (e.contentType !== 'thinking') {
+        summaryRun.buffer += e.text;
+        if (summaryRun.buffer.length > 8000) summaryRun.buffer = summaryRun.buffer.slice(-8000);
+      }
     } else if (e.sourceEvent === 'dialog-turn-completed') {
       const sg = S.goals.get(summaryRun.goalId);
       if (sg && isLiveGoal(sg)) {
         sg.gateSummaries.set(summaryRun.todoId, {
           status: 'done',
-          text: String(summaryRun.buffer || '').trim(),
+          // Parse the labeled three-line answer out of whatever the model
+          // emitted (reasoning walls included) — the card shows ONLY those
+          // three lines.
+          text: cleanGateSummary(String(summaryRun.buffer || '')),
         });
+        scheduleGateSummarySave();
         requestRender(true);
       }
       summaryRuns.delete(e.sessionId);
@@ -3272,6 +3946,7 @@ async function detect() {
   }
   if (S.detect.found) {
     banner.hidden = true;
+    document.getElementById('btn-vendor-loopx').hidden = true;
     document.getElementById('btn-install-loopx').hidden = true;
     // Persist the working prefix — and heal a stale one: detect probes the
     // persisted prefix first, so if the winner differs, the persisted one is
@@ -3286,24 +3961,72 @@ async function detect() {
     return true;
   }
   banner.hidden = false;
-  document.getElementById('btn-install-loopx').hidden = false;
   const detail = document.getElementById('probe-detail');
   detail.hidden = false;
   detail.textContent = (S.detect.probes || [])
     .map((p) => `${(p.argvPrefix || []).join(' ')} → ${p.ok ? p.version : p.error || 'failed'}`)
     .join('\n');
+  await renderLoopxMissing();
   return false;
+}
+
+// ── universal loopx acquisition ────────────────────────────
+// loopx is missing on this machine. Preferred path: fetch its source into the
+// user's stable vendor dir and run it via PYTHONPATH (loopx has no runtime
+// dependencies — only Python >= 3.11 and git are required). The pip install
+// button stays as a fallback. Prerequisites are probed and reported item by
+// item, so a machine without Python/git gets a concrete hint instead of a
+// silent failure.
+async function renderLoopxMissing() {
+  const vendorBtn = document.getElementById('btn-vendor-loopx');
+  const pipBtn = document.getElementById('btn-install-loopx');
+  const hint = document.getElementById('prereq-hint');
+  if (!vendorBtn || !pipBtn || !hint) return;
+  let prereqs = null;
+  try { prereqs = await app.call('loopx.checkPrereqs', {}); } catch (_) { prereqs = null; }
+  if (prereqs && prereqs.market) {
+    // Market edition: interpreters are forbidden by the sandbox, so the
+    // vendor path cannot run. Keep only the pip guidance button.
+    vendorBtn.hidden = true;
+    pipBtn.hidden = false;
+    hint.hidden = true;
+    return;
+  }
+  if (prereqs && prereqs.ready) {
+    vendorBtn.hidden = false;
+    pipBtn.hidden = false;
+    hint.hidden = true;
+    return;
+  }
+  // Not ready: name exactly what is missing; hide the buttons until fixed.
+  vendorBtn.hidden = true;
+  pipBtn.hidden = true;
+  hint.hidden = false;
+  const lines = [];
+  if (!prereqs) {
+    lines.push(t('prereqUnknown'));
+  } else {
+    if (!prereqs.python || !prereqs.python.ok) {
+      lines.push(prereqs.python && prereqs.python.found && prereqs.python.version
+        ? `${t('prereqNeedPython')}（检测到 ${prereqs.python.version}）`
+        : t('prereqNeedPython'));
+    }
+    if (!prereqs.git || !prereqs.git.found) lines.push(t('prereqNeedGit'));
+  }
+  hint.textContent = lines.join('\n');
 }
 
 // One-click bootstrap: stream pip install progress into the banner, then
 // re-detect and reload goals.
-app.on('worker:installLoopx:progress', (d) => {
+function appendInstallProgress(d) {
   const el = document.getElementById('install-progress');
   if (!el) return;
   el.hidden = false;
   el.textContent += `${d && d.line ? d.line : ''}\n`;
   el.scrollTop = el.scrollHeight;
-});
+}
+app.on('worker:installLoopx:progress', appendInstallProgress);
+app.on('worker:vendorLoopx:progress', appendInstallProgress);
 
 async function runInstallLoopx() {
   const btn = document.getElementById('btn-install-loopx');
@@ -3322,6 +4045,32 @@ async function runInstallLoopx() {
   } finally {
     btn.disabled = false;
     btn.textContent = t('installLoopxBtn');
+  }
+}
+
+async function runVendorLoopx() {
+  const btn = document.getElementById('btn-vendor-loopx');
+  const progress = document.getElementById('install-progress');
+  btn.disabled = true;
+  btn.textContent = t('vendoringLoopx');
+  progress.hidden = false;
+  progress.textContent = '';
+  try {
+    const res = await app.call('loopx.ensureVendor', {});
+    if (!res.ok) throw new Error(res.error || 'vendor failed');
+    progress.textContent += `\n${t('vendorDone')}: loopx ${res.version || '?'}\n`;
+    // Persist the vendor checkout as the source dir so later detections keep
+    // using it (and it heals itself on the next poll).
+    if (res.srcDir && !S.config.srcDir) {
+      S.config.srcDir = res.srcDir;
+      saveConfig();
+    }
+    if (await detect()) await refreshGoals();
+  } catch (err) {
+    progress.textContent += `\n${t('vendorFailed')}: ${err.message || err}\n`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t('vendorLoopxBtn');
   }
 }
 
@@ -3372,6 +4121,13 @@ async function refreshGoals() {
     // completing: refresh it right here too.
     refillComposerTarget();
     requestRender(true);
+    // Gate discovery for goals that never poll (paused / auto-run off):
+    // loopx may keep waiting_on=codex while an open user-lane todo (publish
+    // approval) sits pending. syncGateState is TTL-guarded, so this is one
+    // probe per goal per minute at most — polls keep monitored goals fresh.
+    for (const g of S.goals.values()) {
+      if (shouldTrackUserTodos(g)) syncGateState(g);
+    }
     for (const g of S.goals.values()) {
       if (g.monitoring && g.nextDueAt === 0) pollGoal(g);
     }
@@ -3383,17 +4139,32 @@ async function refreshGoals() {
 }
 
 // ── toolbar wiring ────────────────────────────────────────
-// (Settings was removed: model selection lives in the composer, loopx is
-// auto-detected, and the local-checkout override is not needed yet.)
-document.getElementById('btn-refresh').addEventListener('click', refreshGoals);
-document.getElementById('btn-github-token').addEventListener('click', openTokenDialog);
+// The top bar only carries the brand now: refresh is implicit (heartbeat +
+// boot + retry), GitHub credentials are prompted by the publish flow itself
+// (openTokenDialog), and per-task deletion lives on each goal card — the
+// header refresh/token/reset buttons were removed to keep the chrome minimal.
 document.getElementById('btn-token-save').addEventListener('click', saveGitHubToken);
 document.getElementById('btn-token-clear').addEventListener('click', clearGitHubToken);
-document.getElementById('btn-reset-loopx').addEventListener('click', openResetConfirm);
+document.getElementById('btn-gh-login').addEventListener('click', runGhLogin);
+app.on('worker:ghLogin:progress', appendGhLoginProgress);
+// External guide links open in the system browser (sandboxed iframe cannot
+// navigate top-level windows on its own).
+document.querySelectorAll('.external-link').forEach((a) => {
+  a.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    try {
+      if (app.system && app.system.openExternal) app.system.openExternal(a.href);
+      else window.open(a.href, '_blank', 'noopener');
+    } catch (_) {
+      window.open(a.href, '_blank', 'noopener');
+    }
+  });
+});
 document.getElementById('btn-retry-detect').addEventListener('click', async () => {
   if (await detect()) refreshGoals();
 });
 document.getElementById('btn-install-loopx').addEventListener('click', runInstallLoopx);
+document.getElementById('btn-vendor-loopx').addEventListener('click', runVendorLoopx);
 
 document.getElementById('btn-copy-raw').addEventListener('click', async (e) => {
   const text = document.getElementById('raw-body').textContent;
@@ -3552,8 +4323,27 @@ function openIntakeSheet(resolved, objective, targetGoal = null) {
       title.textContent = issue.title === `#${issue.number}` ? issue.url : issue.title;
       title.title = issue.url;
       row.append(cb, num, title);
+      // Image-bearing issues get a marker so the user can spot them at a glance.
+      if (issue.hasImages) {
+        const badge = document.createElement('span');
+        badge.className = 'intake-issue__img';
+        badge.textContent = '🖼';
+        badge.title = t('issueHasImages');
+        row.appendChild(badge);
+      }
       listEl.appendChild(row);
     }
+  }
+
+  // Conservative guard: issues whose key info lives in screenshots + a
+  // text-only model = warn instead of silently letting the agent guess.
+  const imageCount = resolved.issues.filter((issue) => issue.hasImages).length;
+  const visionWarn = document.getElementById('intake-vision-warn');
+  if (imageCount > 0 && !modelSupportsVision()) {
+    visionWarn.hidden = false;
+    visionWarn.textContent = t('intakeVisionWarn', imageCount);
+  } else {
+    visionWarn.hidden = true;
   }
 
   updateIntakeCount();
